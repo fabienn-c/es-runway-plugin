@@ -28,23 +28,12 @@ struct Row
 
 enum class ClickMethod
 {
-    CursorAndPost,  // move the cursor onto the cell, post WM_LBUTTONDOWN/UP to the window
+    CursorAndPost,  // move the cursor onto the target, post WM_LBUTTONDOWN/UP to the window
     RealMouse,      // real mouse click via SendInput
     Count
 };
 
 const char* MethodName(ClickMethod method);
-
-// The click that opens the dialog (on EuroScope's top-bar runway icon), as recorded by ".rwy spy".
-struct Opener
-{
-    int controlId = 0;
-    std::string className;
-    POINT point = {};  // client coordinates in that window
-};
-
-bool SaveOpener(const Opener& opener);
-bool LoadOpener(Opener& opener);
 
 // Visible child of the main EuroScope window with this control id and class
 // (the radar view holding the top bar is id 1, class "AfxWnd140").
@@ -56,8 +45,8 @@ std::vector<Row> ReadRows(HWND list);
 bool IsTicked(const std::string& cell);
 
 // Both return the cursor position to restore on the next tick.
-POINT Click(HWND dialog, HWND list, int row, int column, ClickMethod method);
-bool ReplayOpener(const Opener& opener, ClickMethod method, POINT& previousCursor);
+POINT Click(HWND list, int row, int column, ClickMethod method);
+POINT ClickWindow(HWND window, POINT client, ClickMethod method);
 
 void PressOk(HWND dialog);
 void PressCancel(HWND dialog);

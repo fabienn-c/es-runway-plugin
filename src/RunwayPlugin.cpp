@@ -2,6 +2,7 @@
 
 #include "Log.h"
 #include "RunwayDialog.h"
+#include "RunwayIcon.h"
 #include "ScreenCapture.h"
 #include "WindowProbe.h"
 
@@ -88,34 +89,16 @@ const char* FacilityName(int facility)
 }
 
 constexpr int kTopBarHeight = 80;
-constexpr int kIconWidth = 32;
-constexpr int kIconHeight = 24;
 
 std::string TopBarPath()
 {
     return logfile::PluginDirectory() + "\\ESRunwayPlugin-topbar.bmp";
 }
 
-std::string IconPath()
+std::string Describe(const rwyicon::Match& m)
 {
-    return logfile::PluginDirectory() + "\\ESRunwayPlugin-icon.bmp";
-}
-
-// The radar view whose top strip holds EuroScope's menu bar.
-HWND RadarView()
-{
-    rwydialog::Opener opener;
-    if (rwydialog::LoadOpener(opener))
-        if (HWND h = rwydialog::FindEuroScopeControl(opener.controlId, opener.className))
-            return h;
-    return rwydialog::FindEuroScopeControl(1, "AfxWnd140");
-}
-
-bool GrabTopBar(HWND view, capture::Image& image)
-{
-    RECT client = {};
-    GetClientRect(view, &client);
-    return capture::Grab(view, RECT{0, 0, client.right, std::min<LONG>(kTopBarHeight, client.bottom)}, image);
+    return "at " + std::to_string(m.center.x) + "," + std::to_string(m.center.y) + " (" +
+           std::to_string(m.mismatches) + " of " + std::to_string(m.pixels) + " pixels differ)";
 }
 
 void LogAirportRows(const std::vector<rwydialog::Row>& rows, const std::string& icao)
@@ -210,20 +193,12 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
         m_job.departures = RunwaySet(args[3]);
         m_job.arrivals = RunwaySet(args[4]);
         m_job.armedAtTick = m_lastTick;
-        rwydialog::Opener opener;
         Say("setting " + m_job.icao + " DEP " + Join(m_job.departures) + " ARR " + Join(m_job.arrivals) +
-            (rwydialog::LoadOpener(opener) ? ": opening the runway dialog, don't touch the mouse"
-                                           : ": open the Active airport/runway dialog now and don't click anything"));
+            ": opening the runway dialog, don't touch the mouse");
         return true;
     }
     if (cmd == "OPEN")
     {
-        rwydialog::Opener opener;
-        if (!rwydialog::LoadOpener(opener))
-        {
-            Say("no recorded opener yet: run .rwy spy and open the runway dialog once");
-            return true;
-        }
         m_job = SetJob{};
         m_job.active = true;
         m_job.openOnly = true;
@@ -240,49 +215,29 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
     }
     if (cmd == "CAPTURE")
     {
-        const HWND view = RadarView();
+        const HWND view = rwydialog::FindEuroScopeControl(1, "AfxWnd140");
+        RECT client = {};
         capture::Image bar;
-        if (!view || !GrabTopBar(view, bar))
+        if (view)
+            GetClientRect(view, &client);
+        if (!view || !capture::Grab(view, RECT{0, 0, client.right, std::min<LONG>(kTopBarHeight, client.bottom)}, bar))
         {
             Say("could not capture the top bar: is EuroScope in front and not minimised?");
             return true;
         }
         capture::SaveBmp(TopBarPath(), bar);
-        std::string message = "saved the top bar (" + std::to_string(bar.width) + "x" + std::to_string(bar.height) +
-                               ") to " + TopBarPath();
-        rwydialog::Opener opener;
-        if (rwydialog::LoadOpener(opener))
-        {
-            const auto icon = capture::Crop(bar, opener.point.x - kIconWidth / 2, opener.point.y - kIconHeight / 2,
-                                            kIconWidth, kIconHeight);
-            capture::SaveBmp(IconPath(), icon);
-            message += " and the runway icon to " + IconPath();
-        }
-        Say(message);
+        Say("saved the top bar (" + std::to_string(bar.width) + "x" + std::to_string(bar.height) + ") to " +
+            TopBarPath());
         return true;
     }
     if (cmd == "FIND")
     {
-        capture::Image icon, bar;
-        const HWND view = RadarView();
-        if (!capture::LoadBmp(IconPath(), icon))
-            Say("no icon saved yet: run .rwy capture first");
-        else if (!view || !GrabTopBar(view, bar))
-            Say("could not capture the top bar: is EuroScope in front and not minimised?");
+        const auto match = rwyicon::Locate();
+        if (!match.view)
+            Say("could not find EuroScope's radar view");
         else
-        {
-            POINT at = {};
-            double difference = 0;
-            capture::FindBest(bar, icon, at, difference);
-            rwydialog::Opener opener;
-            const bool haveOpener = rwydialog::LoadOpener(opener);
-            Say("best match for the runway icon at " + std::to_string(at.x + icon.width / 2) + "," +
-                std::to_string(at.y + icon.height / 2) + " (difference " + std::to_string(difference) +
-                ", 0 = identical)" +
-                (haveOpener ? "; your recorded click was at " + std::to_string(opener.point.x) + "," +
-                                  std::to_string(opener.point.y)
-                            : ""));
-        }
+            Say(std::string(match.found ? "found the runway icon " : "runway icon NOT found, best guess ") +
+                Describe(match));
         return true;
     }
     if (cmd == "WINDOWS")
@@ -330,16 +285,27 @@ void RunwayPlugin::StepSetJob(int tick)
             FinishSetJob(m_job.openOnly ? "dialog closed again" : "dialog closed by the plugin. EuroScope now reports:");
             return;
         }
-        rwydialog::Opener opener;
-        if (m_job.openAttempts < static_cast<int>(rwydialog::ClickMethod::Count) && rwydialog::LoadOpener(opener))
+        if (m_job.openAttempts < static_cast<int>(rwydialog::ClickMethod::Count))
         {
+            // Never click blindly: only where the runway icon is actually seen.
+            const auto icon = rwyicon::Locate();
+            if (!icon.found)
+            {
+                m_job.openAttempts = static_cast<int>(rwydialog::ClickMethod::Count);
+                logfile::Write("runway icon not found, best guess " + Describe(icon));
+                if (m_job.openOnly)
+                    FinishSetJob("could not find the runway icon in the top bar");
+                else
+                    Say("could not find the runway icon: please open the Active airport/runway dialog yourself, "
+                        "the plugin will then set the runways");
+                return;
+            }
             const auto method = static_cast<rwydialog::ClickMethod>(m_job.openAttempts++);
             if (m_job.openAttempts > 1)
                 Say(std::string("the dialog did not open, trying again with ") + rwydialog::MethodName(method));
-            if (rwydialog::ReplayOpener(opener, method, m_job.cursor))
-                m_job.restoreCursor = true;
-            else
-                Say("could not find the EuroScope window that opens the dialog");
+            logfile::Write("clicking the runway icon " + Describe(icon) + " with " + rwydialog::MethodName(method));
+            m_job.cursor = rwydialog::ClickWindow(icon.view, icon.center, method);
+            m_job.restoreCursor = true;
             return;
         }
         if (m_job.openOnly)
@@ -412,7 +378,7 @@ void RunwayPlugin::StepSetJob(int tick)
             m_job.clickRow = r.index;
             m_job.clickColumn = column;
             m_job.cellBefore = r.cells[column];
-            m_job.cursor = rwydialog::Click(dialog, list, r.index, column, method);
+            m_job.cursor = rwydialog::Click(list, r.index, column, method);
             m_job.restoreCursor = true;
             return;  // check the effect on the next tick
         }

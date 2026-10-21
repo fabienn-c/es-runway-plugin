@@ -1,9 +1,7 @@
 #include "ScreenCapture.h"
 
 #include <algorithm>
-#include <cstdlib>
 #include <fstream>
-#include <limits>
 
 namespace capture {
 
@@ -53,22 +51,6 @@ bool Grab(HWND h, RECT area, Image& out)
     return true;
 }
 
-Image Crop(const Image& image, int x, int y, int width, int height)
-{
-    Image out;
-    x = std::clamp(x, 0, std::max(0, image.width - 1));
-    y = std::clamp(y, 0, std::max(0, image.height - 1));
-    out.width = std::min(width, image.width - x);
-    out.height = std::min(height, image.height - y);
-    if (out.Empty())
-        return Image{};
-    out.bgr.resize(static_cast<size_t>(out.width) * out.height * 3);
-    for (int row = 0; row < out.height; ++row)
-        std::copy_n(&image.bgr[(static_cast<size_t>(y + row) * image.width + x) * 3], out.width * 3,
-                    &out.bgr[static_cast<size_t>(row) * out.width * 3]);
-    return out;
-}
-
 bool SaveBmp(const std::string& path, const Image& image)
 {
     if (image.Empty())
@@ -98,62 +80,6 @@ bool SaveBmp(const std::string& path, const Image& image)
         out.write(row.data(), stride);
     }
     return static_cast<bool>(out);
-}
-
-bool LoadBmp(const std::string& path, Image& image)
-{
-    std::ifstream in(path, std::ios::binary);
-    BITMAPFILEHEADER file = {};
-    BITMAPINFOHEADER info = {};
-    if (!in.read(reinterpret_cast<char*>(&file), sizeof(file)) || !in.read(reinterpret_cast<char*>(&info), sizeof(info)))
-        return false;
-    if (file.bfType != 0x4D42 || info.biBitCount != 24 || info.biCompression != BI_RGB)
-        return false;
-    const int width = info.biWidth, height = std::abs(info.biHeight);
-    const bool bottomUp = info.biHeight > 0;
-    const int stride = Stride(width);
-    in.seekg(file.bfOffBits);
-    std::vector<char> row(stride);
-    image.width = width;
-    image.height = height;
-    image.bgr.assign(static_cast<size_t>(width) * height * 3, 0);
-    for (int i = 0; i < height; ++i)
-    {
-        if (!in.read(row.data(), stride))
-            return false;
-        const int y = bottomUp ? height - 1 - i : i;
-        std::copy_n(row.data(), width * 3, reinterpret_cast<char*>(&image.bgr[static_cast<size_t>(y) * width * 3]));
-    }
-    return true;
-}
-
-bool FindBest(const Image& haystack, const Image& needle, POINT& at, double& meanDifference)
-{
-    if (haystack.Empty() || needle.Empty() || needle.width > haystack.width || needle.height > haystack.height)
-        return false;
-    const long long samples = static_cast<long long>(needle.width) * needle.height * 3;
-    long long best = std::numeric_limits<long long>::max();
-    for (int y = 0; y + needle.height <= haystack.height; ++y)
-    {
-        for (int x = 0; x + needle.width <= haystack.width; ++x)
-        {
-            long long sum = 0;
-            for (int row = 0; row < needle.height && sum < best; ++row)
-            {
-                const uint8_t* a = &haystack.bgr[(static_cast<size_t>(y + row) * haystack.width + x) * 3];
-                const uint8_t* b = &needle.bgr[static_cast<size_t>(row) * needle.width * 3];
-                for (int i = 0; i < needle.width * 3; ++i)
-                    sum += std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i]));
-            }
-            if (sum < best)
-            {
-                best = sum;
-                at = POINT{x, y};
-            }
-        }
-    }
-    meanDifference = static_cast<double>(best) / samples;
-    return true;
 }
 
 }

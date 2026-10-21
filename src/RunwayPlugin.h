@@ -12,12 +12,12 @@
 // Commands (type them in the EuroScope command line):
 //   .rwy info                     controller, facility and connection
 //   .rwy status <ICAO>            active runways as EuroScope reports them
-//   .rwy set <ICAO> <DEP> <ARR>   e.g. ".rwy set LEBL 24R 24L,02": the plugin opens the runway dialog
-//                                 (if ".rwy spy" recorded how), ticks the runway boxes and presses OK
+//   .rwy set <ICAO> <DEP> <ARR>   e.g. ".rwy set LEBL 24R 24L,02": the plugin finds the runway icon,
+//                                 opens the dialog, ticks the runway boxes and presses OK
 //   .rwy open                     only open the runway dialog, then close it
 //   .rwy spy                      for 60 s, log what EuroScope does; open the runway dialog meanwhile
-//   .rwy capture                  save the top bar and the runway icon as .bmp next to the DLL
-//   .rwy find                     search the top bar for the saved runway icon
+//   .rwy capture                  save the top bar as .bmp next to the DLL
+//   .rwy find                     search the top bar for the runway icon
 //   .rwy windows                  log all EuroScope windows to ESRunwayPlugin.log
 //   .rwy watch                    for 60 s, log every dialog that opens
 class RunwayPlugin : public EuroScopePlugIn::CPlugIn

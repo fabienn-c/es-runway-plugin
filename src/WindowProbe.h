@@ -22,7 +22,7 @@ void DumpProcessWindows(bool deep);
 void DumpWindowTree(HWND root);
 
 // Logs WM_COMMAND / WM_SYSCOMMAND / WM_INITDIALOG and left clicks on EuroScope's UI thread
-// until stopped. When the runway dialog opens, the click that opened it is saved as the opener.
+// until stopped, to see how EuroScope reacts to the controller.
 void StartSpy();
 void StopSpy();
 

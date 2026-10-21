@@ -21,11 +21,11 @@ Get `ESRunwayPlugin.dll` from the [Releases](../../releases) page (or the latest
 |---|---|
 | `.rwy info` | Controller, facility and connection |
 | `.rwy status LEBL` | Active runways as EuroScope reports them |
-| `.rwy spy` | For 60 s, logs what EuroScope does. Open the runway dialog by clicking its icon meanwhile: the plugin remembers that click |
-| `.rwy open` | The plugin opens the runway dialog by itself, then closes it |
-| `.rwy set LEBL 24R 24L` | The plugin opens the dialog (or waits for you to open it), ticks the runway boxes and presses OK. Airport ticks are never touched |
-| `.rwy capture` | Saves a picture of EuroScope's top bar (and the runway icon) next to the DLL |
-| `.rwy find` | Searches the top bar for the saved runway icon |
+| `.rwy open` | The plugin finds the runway icon in the top bar, opens the dialog, then closes it |
+| `.rwy set LEBL 24R 24L` | The plugin opens the dialog, ticks the runway boxes and presses OK. Airport ticks are never touched |
+| `.rwy find` | Reports where the runway icon is in the top bar |
+| `.rwy capture` | Saves a picture of EuroScope's top bar next to the DLL |
+| `.rwy spy` | For 60 s, logs what EuroScope does |
 | `.rwy watch` | For 60 s, logs any dialog that opens |
 | `.rwy windows` | Logs every EuroScope window |
 
