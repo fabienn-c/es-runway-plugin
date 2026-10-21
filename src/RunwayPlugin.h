@@ -12,9 +12,10 @@
 // Commands (type them in the EuroScope command line):
 //   .rwy info                     controller, facility and connection
 //   .rwy status <ICAO>            active runways as EuroScope reports them
-//   .rwy set <ICAO> <DEP> <ARR>   e.g. ".rwy set LEBL 24R 24L,02": then open the runway dialog and
-//                                 let the plugin tick the boxes and press OK
-//   .rwy spy                      for 60 s, log the commands EuroScope handles (open the runway dialog)
+//   .rwy set <ICAO> <DEP> <ARR>   e.g. ".rwy set LEBL 24R 24L,02": the plugin opens the runway dialog
+//                                 (if ".rwy spy" recorded how), ticks the runway boxes and presses OK
+//   .rwy open                     only open the runway dialog, then close it
+//   .rwy spy                      for 60 s, log what EuroScope does; open the runway dialog meanwhile
 //   .rwy windows                  log all EuroScope windows to ESRunwayPlugin.log
 //   .rwy watch                    for 60 s, log every dialog that opens
 class RunwayPlugin : public EuroScopePlugIn::CPlugIn
@@ -32,6 +33,8 @@ private:
     struct SetJob
     {
         bool active = false;
+        bool openOnly = false;  // ".rwy open": stop once the dialog is up
+        int openAttempts = 0;
         std::string icao;
         std::set<std::string> departures;
         std::set<std::string> arrivals;

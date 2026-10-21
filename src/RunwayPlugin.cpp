@@ -30,6 +30,19 @@ std::string Upper(std::string s)
     return s;
 }
 
+std::string Trim(const std::string& s)
+{
+    const auto first = s.find_first_not_of(" \t");
+    return first == std::string::npos ? std::string() : s.substr(first, s.find_last_not_of(" \t") - first + 1);
+}
+
+// Sector names can carry padding or a trailing description ("LEBL Barcelona").
+bool IsAirport(const char* name, const std::string& icao)
+{
+    const std::string n = Upper(Trim(Str(name)));
+    return n.rfind(icao, 0) == 0 && (n.size() == icao.size() || n[icao.size()] == ' ');
+}
+
 std::vector<std::string> Tokens(const std::string& line)
 {
     std::vector<std::string> out;
@@ -107,27 +120,33 @@ void RunwayPlugin::ReportStatus(const std::string& icao)
     for (CSectorElement e = SectorFileElementSelectFirst(SECTOR_ELEMENT_AIRPORT); e.IsValid();
          e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_AIRPORT))
     {
-        if (Upper(Str(e.GetName())) == icao)
+        if (IsAirport(e.GetName(), icao))
             airportState = std::string("dep=") + (e.IsElementActive(true) ? "on" : "off") +
                            " arr=" + (e.IsElementActive(false) ? "on" : "off");
     }
 
     std::string deps, arrs;
+    int matched = 0;
     for (CSectorElement e = SectorFileElementSelectFirst(SECTOR_ELEMENT_RUNWAY); e.IsValid();
          e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_RUNWAY))
     {
-        if (Upper(Str(e.GetAirportName())) != icao)
+        if (matched == 0 && Str(e.GetAirportName()).find(icao) != std::string::npos)
+            logfile::Write("  runway element: name='" + Str(e.GetName()) + "' airport='" + Str(e.GetAirportName()) +
+                           "' ends='" + Str(e.GetRunwayName(0)) + "'/'" + Str(e.GetRunwayName(1)) + "'");
+        if (!IsAirport(e.GetAirportName(), icao))
             continue;
+        ++matched;
         for (int i = 0; i < 2; ++i)
         {
-            const std::string name = Str(e.GetRunwayName(i));
+            const std::string name = Trim(Str(e.GetRunwayName(i)));
             if (e.IsElementActive(true, i))
                 deps += (deps.empty() ? "" : ",") + name;
             if (e.IsElementActive(false, i))
                 arrs += (arrs.empty() ? "" : ",") + name;
         }
     }
-    Say(icao + " (" + airportState + "): DEP " + (deps.empty() ? "-" : deps) + "  ARR " + (arrs.empty() ? "-" : arrs));
+    Say(icao + " (" + airportState + "): DEP " + (deps.empty() ? "-" : deps) + "  ARR " + (arrs.empty() ? "-" : arrs) +
+        "  [" + std::to_string(matched) + " runways]");
 }
 
 bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
@@ -159,15 +178,32 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
         m_job.departures = RunwaySet(args[3]);
         m_job.arrivals = RunwaySet(args[4]);
         m_job.armedAtTick = m_lastTick;
-        Say("ready: open the Active airport/runway dialog now and don't click anything. The plugin will set " +
-            m_job.icao + " DEP " + Join(m_job.departures) + " ARR " + Join(m_job.arrivals) + " and press OK.");
+        rwydialog::Opener opener;
+        Say("setting " + m_job.icao + " DEP " + Join(m_job.departures) + " ARR " + Join(m_job.arrivals) +
+            (rwydialog::LoadOpener(opener) ? ": opening the runway dialog, don't touch the mouse"
+                                           : ": open the Active airport/runway dialog now and don't click anything"));
+        return true;
+    }
+    if (cmd == "OPEN")
+    {
+        rwydialog::Opener opener;
+        if (!rwydialog::LoadOpener(opener))
+        {
+            Say("no recorded opener yet: run .rwy spy and open the runway dialog once");
+            return true;
+        }
+        m_job = SetJob{};
+        m_job.active = true;
+        m_job.openOnly = true;
+        m_job.armedAtTick = m_lastTick;
+        Say("trying to open the runway dialog, don't touch the mouse");
         return true;
     }
     if (cmd == "SPY")
     {
         probe::StartSpy();
         m_spyUntilTick = m_lastTick + 60;
-        Say("spying for 60 s: open the Active airport/runway dialog the way you normally do, then close it");
+        Say("spying for 60 s: open the Active airport/runway dialog by clicking its icon, then close it");
         return true;
     }
     if (cmd == "WINDOWS")
@@ -184,7 +220,7 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
         return true;
     }
 
-    Say("usage: .rwy info | status <ICAO> | set <ICAO> <DEP,..> <ARR,..> | spy | windows | watch");
+    Say("usage: .rwy info | status <ICAO> | set <ICAO> <DEP,..> <ARR,..> | open | spy | windows | watch");
     return true;
 }
 
@@ -195,7 +231,8 @@ void RunwayPlugin::FinishSetJob(const std::string& message)
     const std::string icao = m_job.icao;
     m_job = SetJob{};
     Say(message);
-    ReportStatus(icao);
+    if (!icao.empty())
+        ReportStatus(icao);
 }
 
 void RunwayPlugin::StepSetJob(int tick)
@@ -210,13 +247,40 @@ void RunwayPlugin::StepSetJob(int tick)
     if (!dialog)
     {
         if (m_job.okPressed)
-            FinishSetJob("dialog closed by the plugin. EuroScope now reports:");
+        {
+            FinishSetJob(m_job.openOnly ? "dialog closed again" : "dialog closed by the plugin. EuroScope now reports:");
+            return;
+        }
+        rwydialog::Opener opener;
+        if (m_job.openAttempts < static_cast<int>(rwydialog::ClickMethod::Count) && rwydialog::LoadOpener(opener))
+        {
+            const auto method = static_cast<rwydialog::ClickMethod>(m_job.openAttempts++);
+            if (m_job.openAttempts > 1)
+                Say(std::string("the dialog did not open, trying again with ") + rwydialog::MethodName(method));
+            if (rwydialog::ReplayOpener(opener, method, m_job.cursor))
+                m_job.restoreCursor = true;
+            else
+                Say("could not find the EuroScope window that opens the dialog");
+            return;
+        }
+        if (m_job.openOnly)
+            FinishSetJob("could not open the runway dialog. Please send me the log.");
         else if (tick - m_job.armedAtTick > kSetTimeoutTicks)
             FinishSetJob("gave up: the runway dialog was not opened within 2 minutes");
         return;
     }
     if (m_job.okPressed)
         return;  // waiting for the dialog to close
+    if (m_job.openOnly)
+    {
+        Say(m_job.openAttempts > 0
+                ? std::string("the plugin opened the runway dialog with ") +
+                      rwydialog::MethodName(static_cast<rwydialog::ClickMethod>(m_job.openAttempts - 1)) + ", closing it"
+                : std::string("the runway dialog is open, closing it"));
+        rwydialog::PressCancel(dialog);
+        m_job.okPressed = true;
+        return;
+    }
 
     const HWND list = rwydialog::List(dialog);
     const auto rows = rwydialog::ReadRows(list);
@@ -242,24 +306,18 @@ void RunwayPlugin::StepSetJob(int tick)
         }
     }
 
-    // Find the next cell that differs from the wanted configuration.
-    bool firstRowOfAirport = true;
+    // Find the next runway cell that differs from the wanted configuration. The airport
+    // columns are left alone: another plugin activates airports when the controller connects.
+    bool airportFound = false;
     for (const auto& r : rows)
     {
-        if (r.airport != m_job.icao)
+        if (r.airport != m_job.icao || r.runway.empty())
             continue;
-        std::vector<std::pair<int, bool>> wanted;
-        if (firstRowOfAirport)
-        {
-            wanted.push_back({rwydialog::kColAirportDep, !m_job.departures.empty()});
-            wanted.push_back({rwydialog::kColAirportArr, !m_job.arrivals.empty()});
-            firstRowOfAirport = false;
-        }
-        if (!r.runway.empty())
-        {
-            wanted.push_back({rwydialog::kColRunwayDep, m_job.departures.count(r.runway) > 0});
-            wanted.push_back({rwydialog::kColRunwayArr, m_job.arrivals.count(r.runway) > 0});
-        }
+        airportFound = true;
+        const std::pair<int, bool> wanted[] = {
+            {rwydialog::kColRunwayDep, m_job.departures.count(r.runway) > 0},
+            {rwydialog::kColRunwayArr, m_job.arrivals.count(r.runway) > 0},
+        };
         for (const auto& [column, on] : wanted)
         {
             if (rwydialog::IsTicked(r.cells[column]) == on)
@@ -276,13 +334,14 @@ void RunwayPlugin::StepSetJob(int tick)
             m_job.clickColumn = column;
             m_job.cellBefore = r.cells[column];
             m_job.cursor = rwydialog::Click(dialog, list, r.index, column, method);
-            m_job.restoreCursor = method == rwydialog::ClickMethod::RealMouse;
+            m_job.restoreCursor = true;
             return;  // check the effect on the next tick
         }
     }
 
-    if (firstRowOfAirport)
+    if (!airportFound)
     {
+        rwydialog::PressCancel(dialog);
         FinishSetJob(m_job.icao + " is not in the runway dialog");
         return;
     }

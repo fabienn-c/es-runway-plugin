@@ -1,6 +1,7 @@
 #include "WindowProbe.h"
 
 #include "Log.h"
+#include "RunwayDialog.h"
 
 #include <commctrl.h>
 
@@ -33,7 +34,7 @@ static std::string Describe(HWND h)
     return head + std::string("class=\"") + ClassOf(h) + "\" text=\"" + TextOf(h) + "\"";
 }
 
-static std::vector<HWND> ProcessTopLevelWindows()
+std::vector<HWND> ProcessTopLevelWindows()
 {
     std::vector<HWND> result;
     EnumWindows(
@@ -48,7 +49,7 @@ static std::vector<HWND> ProcessTopLevelWindows()
     return result;
 }
 
-static std::vector<HWND> Descendants(HWND root)
+std::vector<HWND> Descendants(HWND root)
 {
     std::vector<HWND> result;
     EnumChildWindows(
@@ -148,6 +149,8 @@ void DumpProcessWindows(bool deep)
 
 static HHOOK g_sentHook = nullptr;
 static HHOOK g_postedHook = nullptr;
+static rwydialog::Opener g_lastClick;
+static bool g_haveLastClick = false;
 
 static void LogMessage(const char* how, HWND h, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -164,25 +167,56 @@ static bool Interesting(UINT message)
     return message == WM_COMMAND || message == WM_SYSCOMMAND || message == WM_INITDIALOG;
 }
 
+static void RememberClick(const MSG& m)
+{
+    g_lastClick.controlId = GetDlgCtrlID(m.hwnd);
+    g_lastClick.className = ClassOf(m.hwnd);
+    g_lastClick.point = POINT{static_cast<short>(LOWORD(m.lParam)), static_cast<short>(HIWORD(m.lParam))};
+    g_haveLastClick = true;
+    RECT client = {};
+    GetClientRect(m.hwnd, &client);
+    logfile::Write("spy click at " + std::to_string(g_lastClick.point.x) + "," + std::to_string(g_lastClick.point.y) +
+                   " (window " + std::to_string(client.right) + "x" + std::to_string(client.bottom) + ") on " +
+                   Describe(m.hwnd));
+}
+
+static void OnDialogInit(HWND dialog)
+{
+    if (TextOf(dialog) != rwydialog::kTitle || !g_haveLastClick)
+        return;
+    if (rwydialog::SaveOpener(g_lastClick))
+        logfile::Write("spy saved the click that opened the runway dialog");
+}
+
 static LRESULT CALLBACK SentHook(int code, WPARAM wParam, LPARAM lParam)
 {
     const auto* m = reinterpret_cast<const CWPSTRUCT*>(lParam);
     if (code == HC_ACTION && Interesting(m->message))
+    {
         LogMessage("sent", m->hwnd, m->message, m->wParam, m->lParam);
+        if (m->message == WM_INITDIALOG)
+            OnDialogInit(m->hwnd);
+    }
     return CallNextHookEx(g_sentHook, code, wParam, lParam);
 }
 
 static LRESULT CALLBACK PostedHook(int code, WPARAM wParam, LPARAM lParam)
 {
     const auto* m = reinterpret_cast<const MSG*>(lParam);
-    if (code == HC_ACTION && wParam == PM_REMOVE && Interesting(m->message))
-        LogMessage("posted", m->hwnd, m->message, m->wParam, m->lParam);
+    if (code == HC_ACTION && wParam == PM_REMOVE)
+    {
+        if (Interesting(m->message))
+            LogMessage("posted", m->hwnd, m->message, m->wParam, m->lParam);
+        else if (m->message == WM_LBUTTONDOWN)
+            RememberClick(*m);
+    }
     return CallNextHookEx(g_postedHook, code, wParam, lParam);
 }
 
 void StartSpy()
 {
     StopSpy();
+    g_haveLastClick = false;
     g_sentHook = SetWindowsHookExA(WH_CALLWNDPROC, SentHook, nullptr, GetCurrentThreadId());
     g_postedHook = SetWindowsHookExA(WH_GETMESSAGE, PostedHook, nullptr, GetCurrentThreadId());
     logfile::Write("=== spy started");
