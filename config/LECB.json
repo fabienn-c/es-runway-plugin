@@ -1,0 +1,86 @@
+{
+  "fir": "LECB",
+  "timezone": "Europe/Madrid",
+  "defaults": {
+    "maxTailwindKt": 5,
+    "maxCrosswindKt": 15
+  },
+  "airports": {
+    "LEBL": {
+      "source": "AIP España AD 2-LEBL, AD 2.20 'Configuraciones preferentes' and LVP section, AIRAC AMDT 09/26 (WEF 01-OCT-26)",
+      "limits": {
+        "maxTailwindKt": 10,
+        "maxCrosswindKt": 20
+      },
+      "preferentialSuspendedBelow": {
+        "ceilingFt": 500,
+        "visibilityM": 1900
+      },
+      "notInLowVisibility": ["02", "20"],
+      "schedules": [
+        {
+          "name": "day",
+          "from": "07:00",
+          "to": "23:00",
+          "configurations": [
+            { "name": "West parallel", "arr": ["24R"], "dep": ["24L"] },
+            { "name": "East parallel", "arr": ["06L"], "dep": ["06R"] }
+          ]
+        },
+        {
+          "name": "night",
+          "from": "23:00",
+          "to": "07:00",
+          "configurations": [
+            { "name": "North crossed", "arr": ["02"], "dep": ["06R"] },
+            { "name": "West single runway", "arr": ["24L"], "dep": ["24L"] }
+          ]
+        }
+      ],
+      "notes": [
+        "Day departures: 24R (west) / 06L (east) only for aircraft that justify needing the longer runway.",
+        "Night: if RWY 02 cannot be used for arrivals, west configuration. The AIP's last-resort east night configuration is left out (no runway closures on VATSIM).",
+        "Night configuration may be extended past 0700 LT or started before 2300 LT when traffic allows.",
+        "Preferential configurations are also suspended with braking action below good, wind shear or thunderstorms."
+      ]
+    },
+    "LEPA": {
+      "source": "AIP España AD 2-LEPA, AD 2.20 'Uso de pista - Pistas preferentes', AIRAC AMDT 09/26 (WEF 01-OCT-26)",
+      "limits": {
+        "maxTailwindKt": 10
+      },
+      "schedules": [
+        {
+          "name": "all day",
+          "from": "00:00",
+          "to": "24:00",
+          "configurations": [
+            { "name": "West", "arr": ["24L"], "dep": ["24R"] },
+            { "name": "East", "arr": ["06L"], "dep": ["06R"] }
+          ]
+        }
+      ],
+      "notes": [
+        "West: RWY 24R may also be used for arrivals at ATC's initiative to expedite arrivals.",
+        "East: RWY 06L may also be used for departures at ATC's initiative to expedite departures."
+      ]
+    },
+    "LEIB": {
+      "source": "AIP España AD 2-LEIB, AD 2.20 'Uso de pista - Pista preferente', AIRAC AMDT 06/26",
+      "limits": {
+        "maxTailwindKt": 5
+      },
+      "schedules": [
+        {
+          "name": "all day",
+          "from": "00:00",
+          "to": "24:00",
+          "configurations": [
+            { "name": "RWY 24", "arr": ["24"], "dep": ["24"] },
+            { "name": "RWY 06", "arr": ["06"], "dep": ["06"] }
+          ]
+        }
+      ]
+    }
+  }
+}
