@@ -1,65 +1,107 @@
 #pragma once
 
+#include "MetarFeed.h"
+#include "Popup.h"
+#include "RunwayApplier.h"
+
+#include "Config.h"
+#include "Metar.h"
+#include "Selector.h"
+
 #include <windows.h>
 
 #include <EuroScopePlugIn.h>
 
+#include <deque>
+#include <map>
 #include <set>
 #include <string>
+#include <vector>
 
-// Proof of concept: can a plugin change EuroScope's active runways?
+class RunwayScreen;
+
+// Recommends and sets active runways for the airports of the loaded FIR.
 //
-// Commands (type them in the EuroScope command line):
-//   .rwy info                     controller, facility and connection
-//   .rwy status <ICAO>            active runways as EuroScope reports them
-//   .rwy set <ICAO> <DEP> <ARR>   e.g. ".rwy set LEBL 24R 24L,02": the plugin finds the runway icon,
-//                                 opens the dialog, ticks the runway boxes and presses OK
-//   .rwy open                     only open the runway dialog, then close it
-//   .rwy spy                      for 60 s, log what EuroScope does; open the runway dialog meanwhile
-//   .rwy capture                  save the top bar as .bmp next to the DLL
-//   .rwy find                     search the top bar for the runway icon
-//   .rwy windows                  log all EuroScope windows to ESRunwayPlugin.log
-//   .rwy watch                    for 60 s, log every dialog that opens
+//  - Startup: as soon as the sector and METARs are available, every airport of the FIR is set
+//    to its recommended configuration and a summary pop-up lists what was set.
+//  - Afterwards: each new METAR (and each day/night schedule change) is re-evaluated; if the
+//    recommendation differs from what is active, a pop-up offers Accept / Decline.
+//    DEL/GND/TWR only get suggestions for their own airport, APP/CTR for the whole FIR.
+//
+// Commands: .rwy status [ICAO] | check | startup | accept | decline | fir [NAME] | find | capture
 class RunwayPlugin : public EuroScopePlugIn::CPlugIn
 {
 public:
     RunwayPlugin();
     ~RunwayPlugin() override;
 
+    // The loaded plugin, or null once EuroScope has unloaded it.
+    static RunwayPlugin* Instance();
+
     bool OnCompileCommand(const char* sCommandLine) override;
     void OnTimer(int Counter) override;
-    void OnAirportRunwayActivityChanged() override;
+    void OnNewMetarReceived(const char* sStation, const char* sFullMetar) override;
+    EuroScopePlugIn::CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent,
+                                                        bool GeoReferenced, bool CanBeSaved, bool CanBeCreated) override;
+
+    // Used by RunwayScreen.
+    const Popup* FrontPopup() const { return m_popups.empty() ? nullptr : &m_popups.front(); }
+    size_t PopupCount() const { return m_popups.size(); }
+    void OnPopupButton(const std::string& button);
+    POINT PopupOrigin() const { return m_popupOrigin; }
+    void SetPopupOrigin(POINT origin) { m_popupOrigin = origin; }
+    void ForgetScreen(RunwayScreen* screen);
+
+    void TickApplier();
 
 private:
-    // A pending ".rwy set": applied step by step, one click per timer tick.
-    struct SetJob
+    enum class Trigger
     {
-        bool active = false;
-        bool openOnly = false;  // ".rwy open": stop once the dialog is up
-        int openAttempts = 0;
-        std::string icao;
-        std::set<std::string> departures;
-        std::set<std::string> arrivals;
-        int armedAtTick = 0;
-        int method = 0;
-        int clicks = 0;
-        bool waitingForClick = false;
-        int clickRow = 0;
-        int clickColumn = 0;
-        std::string cellBefore;
-        bool restoreCursor = false;
-        POINT cursor = {};
-        bool okPressed = false;
+        Metar,
+        Schedule,
+        Manual
+    };
+
+    struct AirportState
+    {
+        core::Metar metar;
+        bool haveMetar = false;
+        std::string scheduleName;  // schedule of the last evaluation
     };
 
     void Say(const std::string& message);
-    void ReportStatus(const std::string& icao);
-    void StepSetJob(int tick);
-    void FinishSetJob(const std::string& message);
+    void LoadConfigs();
+    bool DetectFir(const std::string& forced = "");
+    void ReadRunwayHeadings();
+    void HandleMetarLine(const std::string& line);
+    void RunStartup();
+    void Evaluate(const std::string& icao, Trigger trigger);
+    core::Decision DecideFor(const std::string& icao);
+    std::string CurrentConfiguration(const core::Airport& airport);
+    bool InScope(const std::string& icao);
+    void ReportStatus(const std::string& onlyIcao);
 
-    SetJob m_job;
-    int m_watchUntilTick = -1;
-    int m_spyUntilTick = -1;
+    void ShowPopup(Popup popup);
+    void RemovePopups(Popup::Kind kind, const std::string& icao = "");
+    void Refresh();
+    void Apply(std::vector<AirportTarget> targets, RunwayApplier::DoneCallback done);
+
+    std::vector<core::Fir> m_firs;
+    const core::Fir* m_fir = nullptr;
+    std::map<std::string, core::RunwayHeadings> m_headings;
+    std::map<std::string, AirportState> m_airports;
+
+    MetarFeed m_feed;
+    RunwayApplier m_applier;
+    UINT_PTR m_applierTimer = 0;
+
+    std::deque<Popup> m_popups;
+    int m_nextPopupId = 1;
+    POINT m_popupOrigin = {-1, -1};
+    std::set<RunwayScreen*> m_screens;
+
+    bool m_startupDone = false;
+    int m_detectedAtTick = -1;
     int m_lastTick = 0;
-    std::set<HWND> m_knownDialogs;
+    int m_lastScheduleMinute = -1;
 };

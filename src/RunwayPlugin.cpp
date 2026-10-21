@@ -1,15 +1,18 @@
 #include "RunwayPlugin.h"
 
 #include "Log.h"
-#include "RunwayDialog.h"
 #include "RunwayIcon.h"
+#include "RunwayScreen.h"
 #include "ScreenCapture.h"
-#include "WindowProbe.h"
+
+#include "LocalTime.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <ctime>
+#include <filesystem>
 #include <sstream>
-#include <vector>
 
 using namespace EuroScopePlugIn;
 
@@ -17,8 +20,12 @@ namespace {
 
 const char* const kName = "ES Runway Plugin";
 const char* const kHandler = "RWY";
-constexpr int kSetTimeoutTicks = 120;  // seconds to open the dialog after ".rwy set"
-constexpr int kMaxClicks = 40;
+constexpr int kStartupMetarWaitTicks = 60;  // seconds to wait for all METARs before the startup assignment
+constexpr int kApplierTimerMs = 100;
+constexpr int kTopBarHeight = 80;
+constexpr double kPi = 3.14159265358979323846;
+
+RunwayPlugin* g_instance = nullptr;
 
 // The SDK may hand back null pointers when nothing is loaded yet.
 std::string Str(const char* s)
@@ -38,88 +45,86 @@ std::string Trim(const std::string& s)
     return first == std::string::npos ? std::string() : s.substr(first, s.find_last_not_of(" \t") - first + 1);
 }
 
-// Sector names can carry padding or a trailing description ("LEBL Barcelona").
-bool IsAirport(const char* name, const std::string& icao)
+// Sector airport names can carry padding or a description ("LEBL Barcelona"): keep the ICAO code.
+std::string Icao(const char* name)
 {
-    const std::string n = Upper(Trim(Str(name)));
-    return n.rfind(icao, 0) == 0 && (n.size() == icao.size() || n[icao.size()] == ' ');
+    return Upper(Trim(Str(name)).substr(0, 4));
 }
 
 std::vector<std::string> Tokens(const std::string& line)
 {
     std::vector<std::string> out;
     std::istringstream ss(line);
-    std::string t;
-    while (ss >> t)
+    for (std::string t; ss >> t;)
         out.push_back(t);
     return out;
 }
 
-std::set<std::string> RunwaySet(const std::string& csv)
+// Initial great-circle bearing in degrees true.
+double TrueBearing(const CPosition& from, const CPosition& to)
 {
-    std::set<std::string> out;
-    std::stringstream ss(Upper(csv));
-    std::string item;
-    while (std::getline(ss, item, ','))
-        if (!item.empty() && item != "-")
-            out.insert(item);
-    return out;
+    const double rad = kPi / 180.0;
+    const double phi1 = from.m_Latitude * rad, phi2 = to.m_Latitude * rad;
+    const double dLambda = (to.m_Longitude - from.m_Longitude) * rad;
+    const double y = std::sin(dLambda) * std::cos(phi2);
+    const double x = std::cos(phi1) * std::sin(phi2) - std::sin(phi1) * std::cos(phi2) * std::cos(dLambda);
+    return std::fmod(std::atan2(y, x) / rad + 360.0, 360.0);
 }
 
-std::string Join(const std::set<std::string>& items)
+const core::Configuration* FindConfiguration(const core::Airport& airport, const std::string& name)
 {
-    std::string out;
-    for (const auto& item : items)
-        out += (out.empty() ? "" : ",") + item;
-    return out.empty() ? "-" : out;
+    for (const auto* c : airport.AllConfigurations())
+        if (c->name == name)
+            return c;
+    return nullptr;
 }
 
-const char* FacilityName(int facility)
+AirportTarget TargetFor(const std::string& icao, const core::Configuration& c)
 {
-    switch (facility)
-    {
-    case 1: return "FSS";
-    case 2: return "DEL";
-    case 3: return "GND";
-    case 4: return "TWR";
-    case 5: return "APP/DEP";
-    case 6: return "CTR";
-    default: return "none/OBS";
-    }
+    return AirportTarget{icao, std::set<std::string>(c.arrivals.begin(), c.arrivals.end()),
+                         std::set<std::string>(c.departures.begin(), c.departures.end())};
 }
 
-constexpr int kTopBarHeight = 80;
-
-std::string TopBarPath()
+void CALLBACK ApplierTimerProc(HWND, UINT, UINT_PTR, DWORD)
 {
-    return logfile::PluginDirectory() + "\\ESRunwayPlugin-topbar.bmp";
+    if (g_instance)
+        g_instance->TickApplier();
 }
 
-std::string Describe(const rwyicon::Match& m)
-{
-    return "at " + std::to_string(m.center.x) + "," + std::to_string(m.center.y) + " (" +
-           std::to_string(m.mismatches) + " of " + std::to_string(m.pixels) + " pixels differ)";
 }
 
-void LogAirportRows(const std::vector<rwydialog::Row>& rows, const std::string& icao)
+RunwayPlugin* RunwayPlugin::Instance()
 {
-    for (const auto& r : rows)
-        if (r.airport == icao)
-            logfile::Write("    row " + std::to_string(r.index) + ": " + r.runway + "  aptDEP=" + r.cells[1] +
-                           " aptARR=" + r.cells[2] + " rwyDEP=" + r.cells[4] + " rwyARR=" + r.cells[5]);
-}
-
+    return g_instance;
 }
 
 RunwayPlugin::RunwayPlugin()
-    : CPlugIn(COMPATIBILITY_CODE, kName, PLUGIN_VERSION, "Fabien Capmarty", "Proof of concept")
+    : CPlugIn(COMPATIBILITY_CODE, kName, PLUGIN_VERSION, "Fabien Capmarty", "VATSIM Spain")
 {
+    g_instance = this;
     logfile::Write(std::string("---- ") + kName + " " + PLUGIN_VERSION + " loaded");
+    m_applier.SetNeedUserCallback([this](bool needUser) {
+        if (!needUser)
+        {
+            RemovePopups(Popup::Kind::Info);
+            return;
+        }
+        Popup p;
+        p.kind = Popup::Kind::Info;
+        p.title = "Please open the runway dialog";
+        p.lines = {"The runway icon could not be found in the top bar, so the plugin will not click anything.",
+                   "Open the Active airport/runway dialog yourself: the plugin will then set the runways and press OK."};
+        ShowPopup(p);
+    });
+    LoadConfigs();
 }
 
 RunwayPlugin::~RunwayPlugin()
 {
-    probe::StopSpy();
+    m_feed.Stop();
+    if (m_applierTimer)
+        KillTimer(nullptr, m_applierTimer);
+    g_instance = nullptr;
 }
 
 void RunwayPlugin::Say(const std::string& message)
@@ -128,308 +133,537 @@ void RunwayPlugin::Say(const std::string& message)
     logfile::Write(message);
 }
 
-void RunwayPlugin::ReportStatus(const std::string& icao)
+// ---------------------------------------------------------------------------------------------
+// Setup: configs, FIR, runway headings
+
+void RunwayPlugin::LoadConfigs()
+{
+    namespace fs = std::filesystem;
+    const fs::path dir = logfile::PluginDirectory();
+    std::error_code ec;
+    for (const auto& folder : {dir, dir / "config"})
+    {
+        for (const auto& entry : fs::directory_iterator(folder, ec))
+        {
+            if (entry.path().extension() != ".json")
+                continue;
+            core::Fir fir;
+            std::string error;
+            if (core::LoadFir(entry.path().string(), fir, error))
+            {
+                logfile::Write("loaded " + fir.name + " (" + std::to_string(fir.airports.size()) + " airports) from " +
+                               entry.path().string());
+                m_firs.push_back(std::move(fir));
+            }
+            else
+                Say("config error: " + error);
+        }
+    }
+    if (m_firs.empty())
+        Say("no runway configuration files found next to the DLL (expected e.g. LECB.json)");
+}
+
+bool RunwayPlugin::DetectFir(const std::string& forced)
 {
     SelectActiveSectorfile();
-    std::string airportState = "not found in sector file";
-    for (CSectorElement e = SectorFileElementSelectFirst(SECTOR_ELEMENT_AIRPORT); e.IsValid();
-         e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_AIRPORT))
+    std::set<std::string> sectorAirports;
+    for (CSectorElement e = SectorFileElementSelectFirst(SECTOR_ELEMENT_RUNWAY); e.IsValid();
+         e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_RUNWAY))
+        sectorAirports.insert(Icao(e.GetAirportName()));
+    if (sectorAirports.empty())
+        return false;  // sector not loaded yet
+
+    // The FIR whose airports are most completely present in the sector file. Neighbouring
+    // sectors contain some airports of other FIRs, never all of them.
+    const core::Fir* best = nullptr;
+    double bestScore = 0;
+    for (const auto& fir : m_firs)
     {
-        if (IsAirport(e.GetName(), icao))
-            airportState = std::string("dep=") + (e.IsElementActive(true) ? "on" : "off") +
-                           " arr=" + (e.IsElementActive(false) ? "on" : "off");
+        int present = 0;
+        for (const auto& a : fir.airports)
+            present += sectorAirports.count(a.icao) ? 1 : 0;
+        const double score = fir.airports.empty() ? 0 : static_cast<double>(present) / fir.airports.size() + present * 1e-4;
+        if (!forced.empty() ? Upper(forced) == fir.name : score > bestScore)
+        {
+            best = &fir;
+            bestScore = score;
+        }
+    }
+    if (!best || (forced.empty() && bestScore < 0.5))
+    {
+        if (!forced.empty())
+            Say("no configuration loaded for FIR " + Upper(forced));
+        return false;
     }
 
-    std::string deps, arrs;
-    int matched = 0;
+    m_fir = best;
+    m_airports.clear();
+    for (const auto& a : m_fir->airports)
+        m_airports[a.icao] = AirportState{};
+    ReadRunwayHeadings();
+    std::vector<std::string> stations;
+    for (const auto& a : m_fir->airports)
+        stations.push_back(a.icao);
+    m_feed.Start(stations);
+    m_detectedAtTick = m_lastTick;
+    m_startupDone = false;
+    Say(m_fir->name + ": " + std::to_string(m_fir->airports.size()) +
+        " airports, downloading METARs to set the runways");
+    return true;
+}
+
+void RunwayPlugin::ReadRunwayHeadings()
+{
+    m_headings.clear();
+    SelectActiveSectorfile();
     for (CSectorElement e = SectorFileElementSelectFirst(SECTOR_ELEMENT_RUNWAY); e.IsValid();
          e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_RUNWAY))
     {
-        if (matched == 0 && Str(e.GetAirportName()).find(icao) != std::string::npos)
-            logfile::Write("  runway element: name='" + Str(e.GetName()) + "' airport='" + Str(e.GetAirportName()) +
-                           "' ends='" + Str(e.GetRunwayName(0)) + "'/'" + Str(e.GetRunwayName(1)) + "'");
-        if (!IsAirport(e.GetAirportName(), icao))
+        const std::string icao = Icao(e.GetAirportName());
+        if (!m_fir || !m_fir->Find(icao))
             continue;
-        ++matched;
+        CPosition start, end;
+        if (!e.GetPosition(&start, 0) || !e.GetPosition(&end, 1))
+            continue;
+        const double heading = TrueBearing(start, end);
+        m_headings[icao][Trim(Str(e.GetRunwayName(0)))] = heading;
+        m_headings[icao][Trim(Str(e.GetRunwayName(1)))] = std::fmod(heading + 180.0, 360.0);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// METARs and decisions
+
+void RunwayPlugin::OnNewMetarReceived(const char* sStation, const char* sFullMetar)
+{
+    std::string line = Trim(Str(sFullMetar));
+    const std::string station = Upper(Str(sStation));
+    if (line.rfind(station, 0) != 0)
+        line = station + " " + line;
+    HandleMetarLine(line);
+}
+
+void RunwayPlugin::HandleMetarLine(const std::string& line)
+{
+    core::Metar metar;
+    if (!core::ParseMetar(line, metar))
+        return;
+    const auto it = m_airports.find(metar.station);
+    if (it == m_airports.end())
+        return;
+    AirportState& state = it->second;
+    if (state.haveMetar && state.metar.observation == metar.observation)
+        return;  // same report again
+    state.metar = metar;
+    state.haveMetar = true;
+    logfile::Write("METAR " + line);
+    if (m_startupDone && InScope(metar.station))
+        Evaluate(metar.station, Trigger::Metar);
+}
+
+core::Decision RunwayPlugin::DecideFor(const std::string& icao)
+{
+    const core::Airport* airport = m_fir->Find(icao);
+    const int minute = core::LocalMinuteOfDay(m_fir->timezone, std::time(nullptr));
+    return core::Decide(*m_fir, *airport, m_airports[icao].metar, m_headings[icao], minute,
+                        CurrentConfiguration(*airport));
+}
+
+std::string RunwayPlugin::CurrentConfiguration(const core::Airport& airport)
+{
+    std::set<std::string> arrivals, departures;
+    SelectActiveSectorfile();
+    for (CSectorElement e = SectorFileElementSelectFirst(SECTOR_ELEMENT_RUNWAY); e.IsValid();
+         e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_RUNWAY))
+    {
+        if (Icao(e.GetAirportName()) != airport.icao)
+            continue;
         for (int i = 0; i < 2; ++i)
         {
             const std::string name = Trim(Str(e.GetRunwayName(i)));
-            if (e.IsElementActive(true, i))
-                deps += (deps.empty() ? "" : ",") + name;
             if (e.IsElementActive(false, i))
-                arrs += (arrs.empty() ? "" : ",") + name;
+                arrivals.insert(name);
+            if (e.IsElementActive(true, i))
+                departures.insert(name);
         }
     }
-    Say(icao + " (" + airportState + "): DEP " + (deps.empty() ? "-" : deps) + "  ARR " + (arrs.empty() ? "-" : arrs) +
-        "  [" + std::to_string(matched) + " runways]");
+    // A configuration counts as active when all its runways are active (extra runways allowed).
+    for (const auto* c : airport.AllConfigurations())
+    {
+        const bool arrOk = std::all_of(c->arrivals.begin(), c->arrivals.end(), [&](auto& r) { return arrivals.count(r) > 0; });
+        const bool depOk =
+            std::all_of(c->departures.begin(), c->departures.end(), [&](auto& r) { return departures.count(r) > 0; });
+        if (arrOk && depOk)
+            return c->name;
+    }
+    return "";
+}
+
+bool RunwayPlugin::InScope(const std::string& icao)
+{
+    if (GetConnectionType() == CONNECTION_TYPE_NO)
+        return true;
+    CController me = ControllerMyself();
+    if (!me.IsValid())
+        return true;
+    const int facility = me.GetFacility();
+    if (facility >= 2 && facility <= 4)  // DEL, GND, TWR: own airport only
+    {
+        const std::string own = Upper(Str(me.GetCallsign()).substr(0, 4));
+        if (m_fir->Find(own))
+            return icao == own;
+    }
+    return true;
+}
+
+void RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
+{
+    const core::Airport* airport = m_fir->Find(icao);
+    AirportState& state = m_airports[icao];
+    if (!airport || !state.haveMetar)
+        return;
+
+    const core::Decision d = DecideFor(icao);
+    state.scheduleName = d.schedule ? d.schedule->name : "";
+    if (!d.configuration)
+    {
+        logfile::Write(icao + ": no recommendation (" + d.reason + ")");
+        return;
+    }
+    const std::string current = CurrentConfiguration(*airport);
+    if (d.configuration->name == current)
+    {
+        RemovePopups(Popup::Kind::Suggestion, icao);
+        if (trigger == Trigger::Manual)
+            Say(icao + ": " + current + " is already active (" + d.reason + ")");
+        return;
+    }
+
+    Popup p;
+    p.kind = Popup::Kind::Suggestion;
+    p.icao = icao;
+    p.configuration = d.configuration->name;
+    p.title = icao + ": runway change suggested";
+    const core::Configuration* active = FindConfiguration(*airport, current);
+    p.lines.push_back("Active:  " + (active ? active->Describe() : std::string("runways not matching any configuration")));
+    p.lines.push_back("Suggested:  " + d.configuration->Describe());
+    p.lines.push_back("Reason:  " + d.reason);
+    if (trigger == Trigger::Schedule && d.schedule && !d.schedule->IsAllDay())
+    {
+        const std::string start = core::FormatClock(d.schedule->fromMinute);
+        if (d.schedule->name == "night")
+            p.lines.push_back("The night configuration period started at " + start +
+                              " LT. The current configuration can be kept while inbound and outbound traffic is "
+                              "heavy; once the traffic load is back to normal, change to the night configuration.");
+        else
+            p.lines.push_back("The " + d.schedule->name + " configuration period started at " + start + " LT.");
+    }
+    p.lines.push_back("METAR:  " + state.metar.raw);
+    ShowPopup(p);
+    logfile::Write(icao + ": suggested " + d.configuration->Describe() + " - " + d.reason);
+}
+
+void RunwayPlugin::RunStartup()
+{
+    m_startupDone = true;
+    std::vector<AirportTarget> targets;
+    std::vector<std::string> lines;
+    for (const auto& airport : m_fir->airports)
+    {
+        AirportState& state = m_airports[airport.icao];
+        if (!state.haveMetar)
+        {
+            lines.push_back(airport.icao + ": no METAR available, not set");
+            continue;
+        }
+        const core::Decision d = DecideFor(airport.icao);
+        state.scheduleName = d.schedule ? d.schedule->name : "";
+        if (!d.configuration)
+        {
+            lines.push_back(airport.icao + ": not set (" + d.reason + ")");
+            continue;
+        }
+        std::string line = airport.icao + ": " + d.configuration->Describe() + "  -  wind " + state.metar.WindText();
+        if (d.configuration->name == CurrentConfiguration(airport))
+            line += " (already active)";
+        else
+            targets.push_back(TargetFor(airport.icao, *d.configuration));
+        lines.push_back(line);
+    }
+
+    const std::string title = m_fir->name + ": runways set automatically";
+    if (targets.empty())
+    {
+        Popup p;
+        p.title = title;
+        p.lines = lines;
+        ShowPopup(p);
+        return;
+    }
+    Apply(targets, [this, lines, title](bool ok, const std::string& message) {
+        Popup p;
+        p.title = title;
+        p.lines = lines;
+        if (!ok)
+            p.lines.push_back("Not completed: " + message + ". Check the runways manually.");
+        p.lines.push_back("You can change any of them in the runway dialog.");
+        ShowPopup(p);
+    });
+}
+
+void RunwayPlugin::ReportStatus(const std::string& onlyIcao)
+{
+    if (!m_fir)
+    {
+        Say("no FIR detected yet");
+        return;
+    }
+    for (const auto& airport : m_fir->airports)
+    {
+        if (!onlyIcao.empty() && airport.icao != onlyIcao)
+            continue;
+        const AirportState& state = m_airports[airport.icao];
+        const std::string current = CurrentConfiguration(airport);
+        std::string line = airport.icao + ": active " + (current.empty() ? "-" : current);
+        if (!state.haveMetar)
+            line += " | no METAR yet";
+        else
+        {
+            const auto d = DecideFor(airport.icao);
+            line += " | recommended " + (d.configuration ? d.configuration->name : "-") + " | " + d.reason;
+        }
+        Say(line);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Timer and commands
+
+void RunwayPlugin::OnTimer(int Counter)
+{
+    m_lastTick = Counter;
+    if (!m_fir)
+    {
+        if (Counter % 5 == 0 && !m_firs.empty())
+            DetectFir();
+        return;
+    }
+
+    for (const auto& line : m_feed.TakeLines())
+        HandleMetarLine(line);
+
+    if (!m_startupDone && !m_applier.Busy())
+    {
+        bool all = true, any = false;
+        for (const auto& [icao, state] : m_airports)
+        {
+            all = all && state.haveMetar;
+            any = any || state.haveMetar;
+        }
+        if (any && (all || Counter - m_detectedAtTick >= kStartupMetarWaitTicks))
+            RunStartup();
+        return;
+    }
+
+    // Day/night schedule changes (e.g. LEBL at 23:00 and 07:00 local).
+    const int minute = core::LocalMinuteOfDay(m_fir->timezone, std::time(nullptr));
+    if (m_startupDone && minute != m_lastScheduleMinute)
+    {
+        m_lastScheduleMinute = minute;
+        for (const auto& airport : m_fir->airports)
+        {
+            const AirportState& state = m_airports[airport.icao];
+            const core::Schedule* schedule = airport.ScheduleAt(minute);
+            if (state.haveMetar && schedule && !state.scheduleName.empty() && schedule->name != state.scheduleName &&
+                InScope(airport.icao))
+                Evaluate(airport.icao, Trigger::Schedule);
+        }
+    }
 }
 
 bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
 {
-    const auto args = Tokens(sCommandLine);
+    const auto args = Tokens(Str(sCommandLine));
     if (args.empty() || Upper(args[0]) != ".RWY")
         return false;
     const std::string cmd = args.size() > 1 ? Upper(args[1]) : "";
 
-    if (cmd == "INFO")
+    if (cmd == "STATUS")
+        ReportStatus(args.size() > 2 ? Upper(args[2]) : "");
+    else if (cmd == "CHECK")
     {
-        CController me = ControllerMyself();
-        Say("callsign=" + (me.IsValid() ? Str(me.GetCallsign()) : "-") +
-            " facility=" + FacilityName(me.IsValid() ? me.GetFacility() : 0) +
-            " connection=" + std::to_string(GetConnectionType()) +
-            "  log=" + logfile::PluginDirectory() + "\\ESRunwayPlugin.log");
-        return true;
+        if (!m_fir)
+            Say("no FIR detected yet");
+        else
+        {
+            m_feed.FetchNow();
+            for (const auto& airport : m_fir->airports)
+                if (InScope(airport.icao))
+                    Evaluate(airport.icao, Trigger::Manual);
+        }
     }
-    if (cmd == "STATUS" && args.size() == 3)
+    else if (cmd == "STARTUP")
     {
-        ReportStatus(Upper(args[2]));
-        return true;
+        if (!m_fir)
+            Say("no FIR detected yet");
+        else if (m_applier.Busy())
+            Say("still applying runways, try again in a moment");
+        else
+            RunStartup();
     }
-    if (cmd == "SET" && args.size() == 5)
+    else if (cmd == "ACCEPT" || cmd == "DECLINE")
     {
-        m_job = SetJob{};
-        m_job.active = true;
-        m_job.icao = Upper(args[2]);
-        m_job.departures = RunwaySet(args[3]);
-        m_job.arrivals = RunwaySet(args[4]);
-        m_job.armedAtTick = m_lastTick;
-        Say("setting " + m_job.icao + " DEP " + Join(m_job.departures) + " ARR " + Join(m_job.arrivals) +
-            ": opening the runway dialog, don't touch the mouse");
-        return true;
+        if (FrontPopup() && FrontPopup()->kind == Popup::Kind::Suggestion)
+            OnPopupButton(cmd == "ACCEPT" ? "accept" : "decline");
+        else
+            Say("no runway suggestion pending");
     }
-    if (cmd == "OPEN")
+    else if (cmd == "FIR")
     {
-        m_job = SetJob{};
-        m_job.active = true;
-        m_job.openOnly = true;
-        m_job.armedAtTick = m_lastTick;
-        Say("trying to open the runway dialog, don't touch the mouse");
-        return true;
+        if (args.size() > 2)
+            DetectFir(args[2]);
+        else
+        {
+            std::string loaded;
+            for (const auto& fir : m_firs)
+                loaded += " " + fir.name;
+            Say("FIR: " + (m_fir ? m_fir->name : std::string("not detected")) + " | loaded:" + loaded);
+        }
     }
-    if (cmd == "SPY")
+    else if (cmd == "FIND")
     {
-        probe::StartSpy();
-        m_spyUntilTick = m_lastTick + 60;
-        Say("spying for 60 s: open the Active airport/runway dialog by clicking its icon, then close it");
-        return true;
+        const auto icon = rwyicon::Locate();
+        Say(std::string(icon.found ? "runway icon found at " : "runway icon NOT found, best guess ") +
+            std::to_string(icon.center.x) + "," + std::to_string(icon.center.y) + " (" + std::to_string(icon.mismatches) +
+            " of " + std::to_string(icon.pixels) + " pixels differ)");
     }
-    if (cmd == "CAPTURE")
+    else if (cmd == "CAPTURE")
     {
         const HWND view = rwydialog::FindEuroScopeControl(1, "AfxWnd140");
         RECT client = {};
         capture::Image bar;
         if (view)
             GetClientRect(view, &client);
-        if (!view || !capture::Grab(view, RECT{0, 0, client.right, std::min<LONG>(kTopBarHeight, client.bottom)}, bar))
-        {
-            Say("could not capture the top bar: is EuroScope in front and not minimised?");
-            return true;
-        }
-        capture::SaveBmp(TopBarPath(), bar);
-        Say("saved the top bar (" + std::to_string(bar.width) + "x" + std::to_string(bar.height) + ") to " +
-            TopBarPath());
-        return true;
-    }
-    if (cmd == "FIND")
-    {
-        const auto match = rwyicon::Locate();
-        if (!match.view)
-            Say("could not find EuroScope's radar view");
+        const std::string path = logfile::PluginDirectory() + "\\ESRunwayPlugin-topbar.bmp";
+        if (view && capture::Grab(view, RECT{0, 0, client.right, std::min<LONG>(kTopBarHeight, client.bottom)}, bar) &&
+            capture::SaveBmp(path, bar))
+            Say("saved the top bar to " + path);
         else
-            Say(std::string(match.found ? "found the runway icon " : "runway icon NOT found, best guess ") +
-                Describe(match));
-        return true;
+            Say("could not capture the top bar: is EuroScope in front and not minimised?");
     }
-    if (cmd == "WINDOWS")
-    {
-        probe::DumpProcessWindows(true);
-        Say("window list written to the log");
-        return true;
-    }
-    if (cmd == "WATCH")
-    {
-        m_knownDialogs = probe::CurrentDialogs();
-        m_watchUntilTick = m_lastTick + 60;
-        Say("watching for 60 s: open the Active airport/runway dialog now");
-        return true;
-    }
-
-    Say("usage: .rwy info | status <ICAO> | set <ICAO> <DEP,..> <ARR,..> | open | spy | capture | find | windows | watch");
+    else
+        Say("usage: .rwy status [ICAO] | check | startup | accept | decline | fir [NAME] | find | capture");
     return true;
 }
 
-void RunwayPlugin::FinishSetJob(const std::string& message)
+// ---------------------------------------------------------------------------------------------
+// Pop-ups, radar screens and applying
+
+EuroScopePlugIn::CRadarScreen* RunwayPlugin::OnRadarScreenCreated(const char*, bool, bool, bool, bool)
 {
-    if (m_job.restoreCursor)
-        SetCursorPos(m_job.cursor.x, m_job.cursor.y);
-    const std::string icao = m_job.icao;
-    m_job = SetJob{};
-    Say(message);
-    if (!icao.empty())
-        ReportStatus(icao);
+    auto* screen = new RunwayScreen();
+    m_screens.insert(screen);
+    return screen;
 }
 
-void RunwayPlugin::StepSetJob(int tick)
+void RunwayPlugin::ForgetScreen(RunwayScreen* screen)
 {
-    if (m_job.restoreCursor)
-    {
-        SetCursorPos(m_job.cursor.x, m_job.cursor.y);
-        m_job.restoreCursor = false;
-    }
+    m_screens.erase(screen);
+}
 
-    const HWND dialog = rwydialog::Find();
-    if (!dialog)
+void RunwayPlugin::Refresh()
+{
+    for (auto* screen : m_screens)
+        screen->RequestRefresh();
+}
+
+void RunwayPlugin::ShowPopup(Popup popup)
+{
+    popup.id = m_nextPopupId++;
+    if (popup.kind == Popup::Kind::Suggestion)
+        RemovePopups(Popup::Kind::Suggestion, popup.icao);
+    if (popup.kind == Popup::Kind::Info)
+        m_popups.push_front(popup);
+    else
+        m_popups.push_back(popup);
+    // Also in the chat, for controllers who haven't allowed the plugin to draw on the radar screen.
+    std::string text = popup.title;
+    for (const auto& line : popup.lines)
+        if (line.rfind("METAR:", 0) != 0)
+            text += " | " + line;
+    if (popup.kind == Popup::Kind::Suggestion)
+        text += " | .rwy accept / .rwy decline";
+    Say(text);
+    Refresh();
+}
+
+void RunwayPlugin::RemovePopups(Popup::Kind kind, const std::string& icao)
+{
+    const auto before = m_popups.size();
+    m_popups.erase(std::remove_if(m_popups.begin(), m_popups.end(),
+                                  [&](const Popup& p) { return p.kind == kind && (icao.empty() || p.icao == icao); }),
+                   m_popups.end());
+    if (m_popups.size() != before)
+        Refresh();
+}
+
+void RunwayPlugin::OnPopupButton(const std::string& button)
+{
+    if (m_popups.empty())
+        return;
+    const Popup popup = m_popups.front();
+
+    if (button == "accept")
     {
-        if (m_job.okPressed)
+        const core::Airport* airport = m_fir ? m_fir->Find(popup.icao) : nullptr;
+        const core::Configuration* c = airport ? FindConfiguration(*airport, popup.configuration) : nullptr;
+        if (!c)
+            return;
+        if (m_applier.Busy())
         {
-            FinishSetJob(m_job.openOnly ? "dialog closed again" : "dialog closed by the plugin. EuroScope now reports:");
+            Say("still applying runways, try again in a moment");
             return;
         }
-        if (m_job.openAttempts < static_cast<int>(rwydialog::ClickMethod::Count))
-        {
-            // Never click blindly: only where the runway icon is actually seen.
-            const auto icon = rwyicon::Locate();
-            if (!icon.found)
+        m_popups.pop_front();
+        const std::string icao = popup.icao, description = c->Describe();
+        Apply({TargetFor(icao, *c)}, [this, icao, description](bool ok, const std::string& message) {
+            if (ok)
+                Say(icao + ": " + description + " set");
+            else
             {
-                m_job.openAttempts = static_cast<int>(rwydialog::ClickMethod::Count);
-                logfile::Write("runway icon not found, best guess " + Describe(icon));
-                if (m_job.openOnly)
-                    FinishSetJob("could not find the runway icon in the top bar");
-                else
-                    Say("could not find the runway icon: please open the Active airport/runway dialog yourself, "
-                        "the plugin will then set the runways");
-                return;
+                Popup p;
+                p.title = icao + ": runways not set";
+                p.lines = {message + ". Please set " + description + " manually."};
+                ShowPopup(p);
             }
-            const auto method = static_cast<rwydialog::ClickMethod>(m_job.openAttempts++);
-            if (m_job.openAttempts > 1)
-                Say(std::string("the dialog did not open, trying again with ") + rwydialog::MethodName(method));
-            logfile::Write("clicking the runway icon " + Describe(icon) + " with " + rwydialog::MethodName(method));
-            m_job.cursor = rwydialog::ClickWindow(icon.view, icon.center, method);
-            m_job.restoreCursor = true;
-            return;
-        }
-        if (m_job.openOnly)
-            FinishSetJob("could not open the runway dialog. Please send me the log.");
-        else if (tick - m_job.armedAtTick > kSetTimeoutTicks)
-            FinishSetJob("gave up: the runway dialog was not opened within 2 minutes");
-        return;
+        });
     }
-    if (m_job.okPressed)
-        return;  // waiting for the dialog to close
-    if (m_job.openOnly)
+    else
     {
-        Say(m_job.openAttempts > 0
-                ? std::string("the plugin opened the runway dialog with ") +
-                      rwydialog::MethodName(static_cast<rwydialog::ClickMethod>(m_job.openAttempts - 1)) + ", closing it"
-                : std::string("the runway dialog is open, closing it"));
-        rwydialog::PressCancel(dialog);
-        m_job.okPressed = true;
-        return;
+        m_popups.pop_front();
+        if (button == "decline")
+            logfile::Write(popup.icao + ": suggestion " + popup.configuration + " declined");
     }
-
-    const HWND list = rwydialog::List(dialog);
-    const auto rows = rwydialog::ReadRows(list);
-
-    // Check the result of the previous click.
-    if (m_job.waitingForClick)
-    {
-        m_job.waitingForClick = false;
-        const std::string after = rows.size() > static_cast<size_t>(m_job.clickRow)
-                                      ? rows[m_job.clickRow].cells[m_job.clickColumn]
-                                      : "";
-        const auto method = static_cast<rwydialog::ClickMethod>(m_job.method);
-        logfile::Write("  click row " + std::to_string(m_job.clickRow) + " col " + std::to_string(m_job.clickColumn) +
-                       " with " + rwydialog::MethodName(method) + ": " + m_job.cellBefore + " -> " + after);
-        if (after == m_job.cellBefore)
-        {
-            Say(std::string("click method '") + rwydialog::MethodName(method) + "' did nothing, trying the next one");
-            if (++m_job.method >= static_cast<int>(rwydialog::ClickMethod::Count))
-            {
-                FinishSetJob("no click method worked - leaving the dialog to you. Please send me the log.");
-                return;
-            }
-        }
-    }
-
-    // Find the next runway cell that differs from the wanted configuration. The airport
-    // columns are left alone: another plugin activates airports when the controller connects.
-    bool airportFound = false;
-    for (const auto& r : rows)
-    {
-        if (r.airport != m_job.icao || r.runway.empty())
-            continue;
-        airportFound = true;
-        const std::pair<int, bool> wanted[] = {
-            {rwydialog::kColRunwayDep, m_job.departures.count(r.runway) > 0},
-            {rwydialog::kColRunwayArr, m_job.arrivals.count(r.runway) > 0},
-        };
-        for (const auto& [column, on] : wanted)
-        {
-            if (rwydialog::IsTicked(r.cells[column]) == on)
-                continue;
-            if (++m_job.clicks > kMaxClicks)
-            {
-                LogAirportRows(rows, m_job.icao);
-                FinishSetJob("too many clicks without reaching the configuration - stopped. Please send me the log.");
-                return;
-            }
-            const auto method = static_cast<rwydialog::ClickMethod>(m_job.method);
-            m_job.waitingForClick = true;
-            m_job.clickRow = r.index;
-            m_job.clickColumn = column;
-            m_job.cellBefore = r.cells[column];
-            m_job.cursor = rwydialog::Click(list, r.index, column, method);
-            m_job.restoreCursor = true;
-            return;  // check the effect on the next tick
-        }
-    }
-
-    if (!airportFound)
-    {
-        rwydialog::PressCancel(dialog);
-        FinishSetJob(m_job.icao + " is not in the runway dialog");
-        return;
-    }
-    logfile::Write("  configuration reached, pressing OK:");
-    LogAirportRows(rows, m_job.icao);
-    rwydialog::PressOk(dialog);
-    m_job.okPressed = true;
+    Refresh();
 }
 
-void RunwayPlugin::OnTimer(int Counter)
+void RunwayPlugin::Apply(std::vector<AirportTarget> targets, RunwayApplier::DoneCallback done)
 {
-    m_lastTick = Counter;
-
-    if (m_job.active)
-        StepSetJob(Counter);
-
-    if (m_spyUntilTick >= 0 && Counter >= m_spyUntilTick)
+    if (!m_applier.Start(std::move(targets), std::move(done)))
     {
-        m_spyUntilTick = -1;
-        probe::StopSpy();
-        Say("spy finished");
+        Say("still applying runways, try again in a moment");
+        return;
     }
-
-    if (m_watchUntilTick >= 0)
-    {
-        for (HWND dialog : probe::CurrentDialogs())
-        {
-            if (m_knownDialogs.insert(dialog).second)
-            {
-                logfile::Write("=== new dialog appeared:");
-                probe::DumpWindowTree(dialog);
-                Say("logged a new dialog");
-            }
-        }
-        if (Counter >= m_watchUntilTick)
-        {
-            m_watchUntilTick = -1;
-            Say("watch finished");
-        }
-    }
+    if (!m_applierTimer)
+        m_applierTimer = SetTimer(nullptr, 0, kApplierTimerMs, ApplierTimerProc);
 }
 
-void RunwayPlugin::OnAirportRunwayActivityChanged()
+void RunwayPlugin::TickApplier()
 {
-    logfile::Write("EuroScope reported a runway activity change");
+    m_applier.Tick();
+    if (!m_applier.Busy() && m_applierTimer)
+    {
+        KillTimer(nullptr, m_applierTimer);
+        m_applierTimer = 0;
+    }
 }
