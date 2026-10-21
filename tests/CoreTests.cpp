@@ -137,6 +137,16 @@ static void TestLecb(const Fir& fir)
     CHECK_EQ(Pick(fir, "LEVC", "LEVC 211200Z 00000KT CAVOK Q1020", day, "RWY 30"), std::string("RWY 30"));
     CHECK_EQ(Pick(fir, "LEVC", "LEVC 211200Z 00000KT CAVOK Q1020", day), std::string("RWY 12"));
 
+    // Active runways must match a configuration exactly: extra runways are not "already active".
+    const Airport* lepa = fir.Find("LEPA");
+    CHECK_EQ(lepa->MatchActive({"24L"}, {"24R"}), std::string("West"));
+    CHECK_EQ(lepa->MatchActive({"24L", "24R", "06L", "06R"}, {"24L", "24R", "06L", "06R"}), std::string(""));
+    CHECK_EQ(lepa->MatchActive({"24L"}, {"24R", "24L"}), std::string(""));
+    CHECK_EQ(lepa->MatchActive({}, {}), std::string(""));
+    const Airport* lebl = fir.Find("LEBL");
+    CHECK_EQ(lebl->MatchActive({"24L"}, {"24L"}), std::string("West single runway"));
+    CHECK_EQ(lebl->MatchActive({"02"}, {"06R"}), std::string("North crossed"));
+
     // LEZG: 30R preferred, 12 configuration when needed.
     CHECK_EQ(Pick(fir, "LEZG", "LEZG 211200Z 12010KT CAVOK Q1020", day), std::string("RWY 12"));
     CHECK_EQ(Pick(fir, "LEZG", "LEZG 211200Z 31020KT CAVOK Q1020", day), std::string("RWY 30R"));

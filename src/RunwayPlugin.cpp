@@ -287,16 +287,9 @@ std::string RunwayPlugin::CurrentConfiguration(const core::Airport& airport)
                 departures.insert(name);
         }
     }
-    // A configuration counts as active when all its runways are active (extra runways allowed).
-    for (const auto* c : airport.AllConfigurations())
-    {
-        const bool arrOk = std::all_of(c->arrivals.begin(), c->arrivals.end(), [&](auto& r) { return arrivals.count(r) > 0; });
-        const bool depOk =
-            std::all_of(c->departures.begin(), c->departures.end(), [&](auto& r) { return departures.count(r) > 0; });
-        if (arrOk && depOk)
-            return c->name;
-    }
-    return "";
+    // Exact match only: extra active runways mean the configuration still has to be applied,
+    // which also unticks every runway that isn't part of it.
+    return airport.MatchActive(arrivals, departures);
 }
 
 bool RunwayPlugin::InScope(const std::string& icao)

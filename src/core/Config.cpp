@@ -121,6 +121,15 @@ std::vector<const Configuration*> Airport::AllConfigurations() const
     return out;
 }
 
+std::string Airport::MatchActive(const std::set<std::string>& arrivals, const std::set<std::string>& departures) const
+{
+    for (const auto* c : AllConfigurations())
+        if (std::set<std::string>(c->arrivals.begin(), c->arrivals.end()) == arrivals &&
+            std::set<std::string>(c->departures.begin(), c->departures.end()) == departures)
+            return c->name;
+    return "";
+}
+
 const Airport* Fir::Find(const std::string& icao) const
 {
     for (const auto& a : airports)

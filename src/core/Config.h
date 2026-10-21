@@ -1,5 +1,6 @@
 #pragma once
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -47,6 +48,10 @@ struct Airport
 
     const Schedule* ScheduleAt(int minuteOfDay) const;
     std::vector<const Configuration*> AllConfigurations() const;
+
+    // The configuration whose runways are exactly the active ones (no missing, no extra runways),
+    // or empty when the active runways match none.
+    std::string MatchActive(const std::set<std::string>& arrivals, const std::set<std::string>& departures) const;
 };
 
 struct Fir
