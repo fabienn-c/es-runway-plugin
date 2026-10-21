@@ -75,7 +75,9 @@ private:
     void ReadRunwayHeadings();
     void HandleMetarLine(const std::string& line);
     void RunStartup();
-    void Evaluate(const std::string& icao, Trigger trigger);
+    bool HasFreshMetar(const std::string& icao);
+    // Shows a suggestion when the recommendation differs from the active runways; returns true if it did.
+    bool Evaluate(const std::string& icao, Trigger trigger);
     core::Decision DecideFor(const std::string& icao);
     std::string CurrentConfiguration(const core::Airport& airport);
     bool InScope(const std::string& icao);

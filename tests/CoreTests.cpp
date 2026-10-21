@@ -80,6 +80,13 @@ static void TestMetar()
 
     Metar bad;
     CHECK(!ParseMetar("No METAR found for XXXX", bad));
+
+    // Age: 2026-10-21 23:37 UTC = 1792625820
+    const std::time_t now = 1792625820;
+    CHECK_EQ(MetarAgeMinutes(M("LEPA 212330Z VRB01KT 9999 Q1023"), now), 7);
+    CHECK_EQ(MetarAgeMinutes(M("LESU 211730Z 31012KT 9999 Q1021"), now), 367);
+    // 2026-11-01 00:10 UTC = 1793491800, METAR from 31 October 23:50
+    CHECK_EQ(MetarAgeMinutes(M("LEBL 312350Z 24005KT 9999 Q1020"), 1793491800), 20);
 }
 
 static void TestLocalTime()

@@ -40,6 +40,29 @@ std::string Metar::WindText() const
     return text;
 }
 
+int MetarAgeMinutes(const Metar& metar, std::time_t nowUtc)
+{
+    int day = 0, hour = 0, minute = 0;
+    if (std::sscanf(metar.observation.c_str(), "%2d%2d%2dZ", &day, &hour, &minute) != 3)
+        return -1;
+    std::tm now = {};
+    gmtime_s(&now, &nowUtc);
+    // The observation is in this month, or in the previous one when its day is ahead of today.
+    for (int monthsBack = 0; monthsBack < 2; ++monthsBack)
+    {
+        std::tm obs = {};
+        obs.tm_year = now.tm_year;
+        obs.tm_mon = now.tm_mon - monthsBack;
+        obs.tm_mday = day;
+        obs.tm_hour = hour;
+        obs.tm_min = minute;
+        const std::time_t t = _mkgmtime(&obs);
+        if (t != -1 && t <= nowUtc + 600)
+            return static_cast<int>((nowUtc - t) / 60);
+    }
+    return -1;
+}
+
 bool ParseMetar(const std::string& line, Metar& out)
 {
     out = Metar{};

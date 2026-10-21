@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ctime>
 #include <string>
 
 // The parts of a METAR the runway logic needs.
@@ -27,5 +28,12 @@ struct Metar
 
 // Parses one METAR line ("LEBL 211900Z 04006KT ..."). Returns false if it has no station or time.
 bool ParseMetar(const std::string& line, Metar& out);
+
+// Minutes between the observation time ("ddhhmmZ") and `nowUtc`, handling month changes.
+// Returns -1 if the observation time can't be read.
+int MetarAgeMinutes(const Metar& metar, std::time_t nowUtc);
+
+// METARs older than this are ignored (e.g. an airport that closed for the night).
+constexpr int kMaxMetarAgeMinutes = 120;
 
 }

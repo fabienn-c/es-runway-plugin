@@ -309,27 +309,34 @@ bool RunwayPlugin::InScope(const std::string& icao)
     return true;
 }
 
-void RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
+bool RunwayPlugin::HasFreshMetar(const std::string& icao)
+{
+    const AirportState& state = m_airports[icao];
+    if (!state.haveMetar)
+        return false;
+    const int age = core::MetarAgeMinutes(state.metar, std::time(nullptr));
+    return age >= 0 && age <= core::kMaxMetarAgeMinutes;
+}
+
+bool RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
 {
     const core::Airport* airport = m_fir->Find(icao);
     AirportState& state = m_airports[icao];
-    if (!airport || !state.haveMetar)
-        return;
+    if (!airport || !HasFreshMetar(icao))
+        return false;
 
     const core::Decision d = DecideFor(icao);
     state.scheduleName = d.schedule ? d.schedule->name : "";
     if (!d.configuration)
     {
         logfile::Write(icao + ": no recommendation (" + d.reason + ")");
-        return;
+        return false;
     }
     const std::string current = CurrentConfiguration(*airport);
     if (d.configuration->name == current)
     {
         RemovePopups(Popup::Kind::Suggestion, icao);
-        if (trigger == Trigger::Manual)
-            Say(icao + ": " + current + " is already active (" + d.reason + ")");
-        return;
+        return false;
     }
 
     Popup p;
@@ -354,6 +361,7 @@ void RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
     p.lines.push_back("METAR:  " + state.metar.raw);
     ShowPopup(p);
     logfile::Write(icao + ": suggested " + d.configuration->Describe() + " - " + d.reason);
+    return true;
 }
 
 void RunwayPlugin::RunStartup()
@@ -367,6 +375,11 @@ void RunwayPlugin::RunStartup()
         if (!state.haveMetar)
         {
             lines.push_back(airport.icao + ": no METAR available, not set");
+            continue;
+        }
+        if (!HasFreshMetar(airport.icao))
+        {
+            lines.push_back(airport.icao + ": METAR too old (" + state.metar.observation + "), not set");
             continue;
         }
         const core::Decision d = DecideFor(airport.icao);
@@ -420,6 +433,8 @@ void RunwayPlugin::ReportStatus(const std::string& onlyIcao)
         std::string line = airport.icao + ": active " + (current.empty() ? "-" : current);
         if (!state.haveMetar)
             line += " | no METAR yet";
+        else if (!HasFreshMetar(airport.icao))
+            line += " | METAR too old (" + state.metar.observation + "), no recommendation";
         else
         {
             const auto d = DecideFor(airport.icao);
@@ -451,7 +466,7 @@ void RunwayPlugin::OnTimer(int Counter)
         for (const auto& [icao, state] : m_airports)
         {
             all = all && state.haveMetar;
-            any = any || state.haveMetar;
+            any = any || HasFreshMetar(icao);
         }
         if (any && (all || Counter - m_detectedAtTick >= kStartupMetarWaitTicks))
             RunStartup();
@@ -467,7 +482,7 @@ void RunwayPlugin::OnTimer(int Counter)
         {
             const AirportState& state = m_airports[airport.icao];
             const core::Schedule* schedule = airport.ScheduleAt(minute);
-            if (state.haveMetar && schedule && !state.scheduleName.empty() && schedule->name != state.scheduleName &&
+            if (HasFreshMetar(airport.icao) && schedule && !state.scheduleName.empty() && schedule->name != state.scheduleName &&
                 InScope(airport.icao))
                 Evaluate(airport.icao, Trigger::Schedule);
         }
@@ -490,9 +505,21 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
         else
         {
             m_feed.FetchNow();
+            int suggested = 0, set = 0;
+            std::string stale;
             for (const auto& airport : m_fir->airports)
-                if (InScope(airport.icao))
-                    Evaluate(airport.icao, Trigger::Manual);
+            {
+                if (!InScope(airport.icao))
+                    continue;
+                if (!HasFreshMetar(airport.icao))
+                    stale += " " + airport.icao;
+                else if (Evaluate(airport.icao, Trigger::Manual))
+                    ++suggested;
+                else
+                    ++set;
+            }
+            Say("check: " + std::to_string(set) + " airports already set, " + std::to_string(suggested) +
+                " suggestion(s)" + (stale.empty() ? "" : ", no current METAR:" + stale));
         }
     }
     else if (cmd == "STARTUP")
