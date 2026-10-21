@@ -20,7 +20,9 @@ add_library(ESRunwayPlugin SHARED
     src/Log.cpp
 )
 
-target_include_directories(ESRunwayPlugin PRIVATE sdk src)
+# SYSTEM keeps warnings from the EuroScope SDK header out of our build output.
+target_include_directories(ESRunwayPlugin SYSTEM PRIVATE sdk)
+target_include_directories(ESRunwayPlugin PRIVATE src)
 target_compile_definitions(ESRunwayPlugin PRIVATE
     WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS
     PLUGIN_VERSION="${PROJECT_VERSION}"
