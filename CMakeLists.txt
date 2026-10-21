@@ -25,6 +25,7 @@ add_library(RunwayCore STATIC
 )
 target_include_directories(RunwayCore PUBLIC src/core)
 target_link_libraries(RunwayCore PUBLIC nlohmann_json::nlohmann_json)
+target_compile_definitions(RunwayCore PRIVATE _CRT_SECURE_NO_WARNINGS)
 target_compile_options(RunwayCore PRIVATE /W4 /utf-8)
 
 add_library(ESRunwayPlugin SHARED
