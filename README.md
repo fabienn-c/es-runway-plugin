@@ -19,16 +19,14 @@ Get `ESRunwayPlugin.dll` from the [Releases](../../releases) page (or the latest
 
 | Command | What it tests |
 |---|---|
-| `.rwy info` | Which sector file is loaded and where its `.rwy` file is |
+| `.rwy info` | Controller, facility and connection |
 | `.rwy status LEBL` | Active runways as EuroScope reports them |
-| `.rwy write LEBL 24R 24L` | Writes the `.rwy` file **while EuroScope runs** |
-| `.rwy arm LEBL 06R 06L` | Writes the `.rwy` file at the **next EuroScope start** |
-| `.rwy watch` | For 60 s, logs any dialog that opens. Open the *Active airport/runway* dialog meanwhile |
+| `.rwy set LEBL 24R 24L` | Then open the *Active airport/runway* dialog and don't touch it: the plugin ticks the boxes and presses OK |
+| `.rwy spy` | For 60 s, logs the commands EuroScope handles. Open the runway dialog meanwhile |
+| `.rwy watch` | For 60 s, logs any dialog that opens |
 | `.rwy windows` | Logs every EuroScope window |
 
-Runway lists are comma-separated: `.rwy write LEBL 24R,02 24L`.
-
-The first write keeps a backup of your original file as `<sector>.rwy.bak`.
+Runway lists are comma-separated, `-` for none: `.rwy set LEBL 24R,02 24L`.
 
 ## Building
 

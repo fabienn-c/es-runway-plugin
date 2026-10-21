@@ -1,13 +1,11 @@
 #include "RunwayPlugin.h"
 
 #include "Log.h"
-#include "RwyFile.h"
+#include "RunwayDialog.h"
 #include "WindowProbe.h"
 
 #include <algorithm>
 #include <cctype>
-#include <cstdio>
-#include <fstream>
 #include <sstream>
 #include <vector>
 
@@ -17,6 +15,8 @@ namespace {
 
 const char* const kName = "ES Runway Plugin";
 const char* const kHandler = "RWY";
+constexpr int kSetTimeoutTicks = 120;  // seconds to open the dialog after ".rwy set"
+constexpr int kMaxClicks = 40;
 
 // The SDK may hand back null pointers when nothing is loaded yet.
 std::string Str(const char* s)
@@ -40,9 +40,23 @@ std::vector<std::string> Tokens(const std::string& line)
     return out;
 }
 
-std::string PendingPath()
+std::set<std::string> RunwaySet(const std::string& csv)
 {
-    return logfile::PluginDirectory() + "\\ESRunwayPlugin.pending";
+    std::set<std::string> out;
+    std::stringstream ss(Upper(csv));
+    std::string item;
+    while (std::getline(ss, item, ','))
+        if (!item.empty() && item != "-")
+            out.insert(item);
+    return out;
+}
+
+std::string Join(const std::set<std::string>& items)
+{
+    std::string out;
+    for (const auto& item : items)
+        out += (out.empty() ? "" : ",") + item;
+    return out.empty() ? "-" : out;
 }
 
 const char* FacilityName(int facility)
@@ -59,13 +73,25 @@ const char* FacilityName(int facility)
     }
 }
 
+void LogAirportRows(const std::vector<rwydialog::Row>& rows, const std::string& icao)
+{
+    for (const auto& r : rows)
+        if (r.airport == icao)
+            logfile::Write("    row " + std::to_string(r.index) + ": " + r.runway + "  aptDEP=" + r.cells[1] +
+                           " aptARR=" + r.cells[2] + " rwyDEP=" + r.cells[4] + " rwyARR=" + r.cells[5]);
+}
+
 }
 
 RunwayPlugin::RunwayPlugin()
-    : CPlugIn(COMPATIBILITY_CODE, kName, PLUGIN_VERSION, "VATSIM Spain", "Proof of concept")
+    : CPlugIn(COMPATIBILITY_CODE, kName, PLUGIN_VERSION, "Fabien Capmarty", "Proof of concept")
 {
     logfile::Write(std::string("---- ") + kName + " " + PLUGIN_VERSION + " loaded");
-    ApplyPendingAtStartup();
+}
+
+RunwayPlugin::~RunwayPlugin()
+{
+    probe::StopSpy();
 }
 
 void RunwayPlugin::Say(const std::string& message)
@@ -74,49 +100,13 @@ void RunwayPlugin::Say(const std::string& message)
     logfile::Write(message);
 }
 
-std::string RunwayPlugin::RwyPath()
-{
-    return rwyfile::PathForSector(Str(ControllerMyself().GetSectorFileName()));
-}
-
-void RunwayPlugin::ApplyPendingAtStartup()
-{
-    std::ifstream in(PendingPath());
-    if (!in)
-        return;
-    rwyfile::AirportConfig config;
-    std::string path, dep, arr;
-    std::getline(in, path);
-    std::getline(in, config.icao);
-    std::getline(in, dep);
-    std::getline(in, arr);
-    in.close();
-    std::remove(PendingPath().c_str());
-
-    config.departures = rwyfile::SplitList(dep);
-    config.arrivals = rwyfile::SplitList(arr);
-    std::string error;
-    if (rwyfile::Apply(path, config, error))
-    {
-        logfile::Write("startup: wrote " + config.icao + " DEP " + dep + " ARR " + arr + " into " + path);
-        m_checkIcao = config.icao;
-        m_checkAtTick = 10;  // report once the sector file has had time to load
-    }
-    else
-    {
-        logfile::Write("startup: " + error);
-    }
-}
-
 void RunwayPlugin::ReportStatus(const std::string& icao)
 {
     SelectActiveSectorfile();
-    int airports = 0;
     std::string airportState = "not found in sector file";
     for (CSectorElement e = SectorFileElementSelectFirst(SECTOR_ELEMENT_AIRPORT); e.IsValid();
          e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_AIRPORT))
     {
-        ++airports;
         if (Upper(Str(e.GetName())) == icao)
             airportState = std::string("dep=") + (e.IsElementActive(true) ? "on" : "off") +
                            " arr=" + (e.IsElementActive(false) ? "on" : "off");
@@ -137,8 +127,7 @@ void RunwayPlugin::ReportStatus(const std::string& icao)
                 arrs += (arrs.empty() ? "" : ",") + name;
         }
     }
-    Say(icao + " (" + airportState + "): DEP " + (deps.empty() ? "-" : deps) + "  ARR " + (arrs.empty() ? "-" : arrs) +
-        "  [" + std::to_string(airports) + " airports in sector]");
+    Say(icao + " (" + airportState + "): DEP " + (deps.empty() ? "-" : deps) + "  ARR " + (arrs.empty() ? "-" : arrs));
 }
 
 bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
@@ -151,11 +140,10 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
     if (cmd == "INFO")
     {
         CController me = ControllerMyself();
-        Say(std::string("callsign=") + (me.IsValid() ? Str(me.GetCallsign()) : "-") +
+        Say("callsign=" + (me.IsValid() ? Str(me.GetCallsign()) : "-") +
             " facility=" + FacilityName(me.IsValid() ? me.GetFacility() : 0) +
-            " connection=" + std::to_string(GetConnectionType()));
-        Say("sector file=" + Str(me.GetSectorFileName()));
-        Say("rwy file=" + RwyPath() + "  log=" + logfile::PluginDirectory() + "\\ESRunwayPlugin.log");
+            " connection=" + std::to_string(GetConnectionType()) +
+            "  log=" + logfile::PluginDirectory() + "\\ESRunwayPlugin.log");
         return true;
     }
     if (cmd == "STATUS" && args.size() == 3)
@@ -163,34 +151,23 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
         ReportStatus(Upper(args[2]));
         return true;
     }
-    if ((cmd == "WRITE" || cmd == "ARM") && args.size() == 5)
+    if (cmd == "SET" && args.size() == 5)
     {
-        const std::string path = RwyPath();
-        if (path.empty())
-        {
-            Say(std::string("cannot find the .rwy path, sector file is '") + Str(ControllerMyself().GetSectorFileName()) + "'");
-            return true;
-        }
-        rwyfile::AirportConfig config{Upper(args[2]), rwyfile::SplitList(Upper(args[3])),
-                                      rwyfile::SplitList(Upper(args[4]))};
-        if (cmd == "WRITE")
-        {
-            std::string error;
-            if (rwyfile::Apply(path, config, error))
-                Say("wrote " + config.icao + " to " + path + " - now check the runway dialog / .rwy status " + config.icao);
-            else
-                Say(error);
-        }
-        else
-        {
-            std::ofstream out(PendingPath(), std::ios::trunc);
-            out << path << "\n"
-                << config.icao << "\n"
-                << rwyfile::JoinList(config.departures) << "\n"
-                << rwyfile::JoinList(config.arrivals) << "\n";
-            Say("armed: " + config.icao + " will be written at the next EuroScope start. Close EuroScope WITHOUT "
-                "touching the runway dialog, reopen it, wait 10 s.");
-        }
+        m_job = SetJob{};
+        m_job.active = true;
+        m_job.icao = Upper(args[2]);
+        m_job.departures = RunwaySet(args[3]);
+        m_job.arrivals = RunwaySet(args[4]);
+        m_job.armedAtTick = m_lastTick;
+        Say("ready: open the Active airport/runway dialog now and don't click anything. The plugin will set " +
+            m_job.icao + " DEP " + Join(m_job.departures) + " ARR " + Join(m_job.arrivals) + " and press OK.");
+        return true;
+    }
+    if (cmd == "SPY")
+    {
+        probe::StartSpy();
+        m_spyUntilTick = m_lastTick + 60;
+        Say("spying for 60 s: open the Active airport/runway dialog the way you normally do, then close it");
         return true;
     }
     if (cmd == "WINDOWS")
@@ -203,23 +180,130 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
     {
         m_knownDialogs = probe::CurrentDialogs();
         m_watchUntilTick = m_lastTick + 60;
-        Say("watching for 60 s: open the Active airport/runway dialog now and tick something");
+        Say("watching for 60 s: open the Active airport/runway dialog now");
         return true;
     }
 
-    Say("usage: .rwy info | status <ICAO> | write <ICAO> <DEP,..> <ARR,..> | arm <ICAO> <DEP,..> <ARR,..> | windows | watch");
+    Say("usage: .rwy info | status <ICAO> | set <ICAO> <DEP,..> <ARR,..> | spy | windows | watch");
     return true;
+}
+
+void RunwayPlugin::FinishSetJob(const std::string& message)
+{
+    if (m_job.restoreCursor)
+        SetCursorPos(m_job.cursor.x, m_job.cursor.y);
+    const std::string icao = m_job.icao;
+    m_job = SetJob{};
+    Say(message);
+    ReportStatus(icao);
+}
+
+void RunwayPlugin::StepSetJob(int tick)
+{
+    if (m_job.restoreCursor)
+    {
+        SetCursorPos(m_job.cursor.x, m_job.cursor.y);
+        m_job.restoreCursor = false;
+    }
+
+    const HWND dialog = rwydialog::Find();
+    if (!dialog)
+    {
+        if (m_job.okPressed)
+            FinishSetJob("dialog closed by the plugin. EuroScope now reports:");
+        else if (tick - m_job.armedAtTick > kSetTimeoutTicks)
+            FinishSetJob("gave up: the runway dialog was not opened within 2 minutes");
+        return;
+    }
+    if (m_job.okPressed)
+        return;  // waiting for the dialog to close
+
+    const HWND list = rwydialog::List(dialog);
+    const auto rows = rwydialog::ReadRows(list);
+
+    // Check the result of the previous click.
+    if (m_job.waitingForClick)
+    {
+        m_job.waitingForClick = false;
+        const std::string after = rows.size() > static_cast<size_t>(m_job.clickRow)
+                                      ? rows[m_job.clickRow].cells[m_job.clickColumn]
+                                      : "";
+        const auto method = static_cast<rwydialog::ClickMethod>(m_job.method);
+        logfile::Write("  click row " + std::to_string(m_job.clickRow) + " col " + std::to_string(m_job.clickColumn) +
+                       " with " + rwydialog::MethodName(method) + ": " + m_job.cellBefore + " -> " + after);
+        if (after == m_job.cellBefore)
+        {
+            Say(std::string("click method '") + rwydialog::MethodName(method) + "' did nothing, trying the next one");
+            if (++m_job.method >= static_cast<int>(rwydialog::ClickMethod::Count))
+            {
+                FinishSetJob("no click method worked - leaving the dialog to you. Please send me the log.");
+                return;
+            }
+        }
+    }
+
+    // Find the next cell that differs from the wanted configuration.
+    bool firstRowOfAirport = true;
+    for (const auto& r : rows)
+    {
+        if (r.airport != m_job.icao)
+            continue;
+        std::vector<std::pair<int, bool>> wanted;
+        if (firstRowOfAirport)
+        {
+            wanted.push_back({rwydialog::kColAirportDep, !m_job.departures.empty()});
+            wanted.push_back({rwydialog::kColAirportArr, !m_job.arrivals.empty()});
+            firstRowOfAirport = false;
+        }
+        if (!r.runway.empty())
+        {
+            wanted.push_back({rwydialog::kColRunwayDep, m_job.departures.count(r.runway) > 0});
+            wanted.push_back({rwydialog::kColRunwayArr, m_job.arrivals.count(r.runway) > 0});
+        }
+        for (const auto& [column, on] : wanted)
+        {
+            if (rwydialog::IsTicked(r.cells[column]) == on)
+                continue;
+            if (++m_job.clicks > kMaxClicks)
+            {
+                LogAirportRows(rows, m_job.icao);
+                FinishSetJob("too many clicks without reaching the configuration - stopped. Please send me the log.");
+                return;
+            }
+            const auto method = static_cast<rwydialog::ClickMethod>(m_job.method);
+            m_job.waitingForClick = true;
+            m_job.clickRow = r.index;
+            m_job.clickColumn = column;
+            m_job.cellBefore = r.cells[column];
+            m_job.cursor = rwydialog::Click(dialog, list, r.index, column, method);
+            m_job.restoreCursor = method == rwydialog::ClickMethod::RealMouse;
+            return;  // check the effect on the next tick
+        }
+    }
+
+    if (firstRowOfAirport)
+    {
+        FinishSetJob(m_job.icao + " is not in the runway dialog");
+        return;
+    }
+    logfile::Write("  configuration reached, pressing OK:");
+    LogAirportRows(rows, m_job.icao);
+    rwydialog::PressOk(dialog);
+    m_job.okPressed = true;
 }
 
 void RunwayPlugin::OnTimer(int Counter)
 {
     m_lastTick = Counter;
 
-    if (m_checkAtTick >= 0 && Counter >= m_checkAtTick)
+    if (m_job.active)
+        StepSetJob(Counter);
+
+    if (m_spyUntilTick >= 0 && Counter >= m_spyUntilTick)
     {
-        m_checkAtTick = -1;
-        Say("startup check - plugin wrote " + m_checkIcao + " before the sector loaded. EuroScope now reports:");
-        ReportStatus(m_checkIcao);
+        m_spyUntilTick = -1;
+        probe::StopSpy();
+        Say("spy finished");
     }
 
     if (m_watchUntilTick >= 0)
@@ -244,6 +328,4 @@ void RunwayPlugin::OnTimer(int Counter)
 void RunwayPlugin::OnAirportRunwayActivityChanged()
 {
     logfile::Write("EuroScope reported a runway activity change");
-    if (!m_checkIcao.empty())
-        ReportStatus(m_checkIcao);
 }

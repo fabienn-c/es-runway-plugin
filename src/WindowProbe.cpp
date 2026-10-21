@@ -146,6 +146,59 @@ void DumpProcessWindows(bool deep)
     logfile::Write("=== end of window dump");
 }
 
+static HHOOK g_sentHook = nullptr;
+static HHOOK g_postedHook = nullptr;
+
+static void LogMessage(const char* how, HWND h, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    const char* name = message == WM_COMMAND ? "WM_COMMAND" : message == WM_SYSCOMMAND ? "WM_SYSCOMMAND" : "WM_INITDIALOG";
+    char line[128];
+    std::snprintf(line, sizeof(line), "spy %s %s id=%u code=%u lParam=%08lX to ", how, name,
+                  static_cast<unsigned>(LOWORD(wParam)), static_cast<unsigned>(HIWORD(wParam)),
+                  static_cast<unsigned long>(lParam));
+    logfile::Write(line + Describe(h));
+}
+
+static bool Interesting(UINT message)
+{
+    return message == WM_COMMAND || message == WM_SYSCOMMAND || message == WM_INITDIALOG;
+}
+
+static LRESULT CALLBACK SentHook(int code, WPARAM wParam, LPARAM lParam)
+{
+    const auto* m = reinterpret_cast<const CWPSTRUCT*>(lParam);
+    if (code == HC_ACTION && Interesting(m->message))
+        LogMessage("sent", m->hwnd, m->message, m->wParam, m->lParam);
+    return CallNextHookEx(g_sentHook, code, wParam, lParam);
+}
+
+static LRESULT CALLBACK PostedHook(int code, WPARAM wParam, LPARAM lParam)
+{
+    const auto* m = reinterpret_cast<const MSG*>(lParam);
+    if (code == HC_ACTION && wParam == PM_REMOVE && Interesting(m->message))
+        LogMessage("posted", m->hwnd, m->message, m->wParam, m->lParam);
+    return CallNextHookEx(g_postedHook, code, wParam, lParam);
+}
+
+void StartSpy()
+{
+    StopSpy();
+    g_sentHook = SetWindowsHookExA(WH_CALLWNDPROC, SentHook, nullptr, GetCurrentThreadId());
+    g_postedHook = SetWindowsHookExA(WH_GETMESSAGE, PostedHook, nullptr, GetCurrentThreadId());
+    logfile::Write("=== spy started");
+}
+
+void StopSpy()
+{
+    if (g_sentHook)
+        UnhookWindowsHookEx(g_sentHook);
+    if (g_postedHook)
+        UnhookWindowsHookEx(g_postedHook);
+    if (g_sentHook || g_postedHook)
+        logfile::Write("=== spy stopped");
+    g_sentHook = g_postedHook = nullptr;
+}
+
 std::set<HWND> CurrentDialogs()
 {
     std::set<HWND> dialogs;

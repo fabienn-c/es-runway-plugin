@@ -17,4 +17,9 @@ void DumpProcessWindows(bool deep);
 // Writes one window and all its descendants, including list/checkbox contents.
 void DumpWindowTree(HWND root);
 
+// Logs WM_COMMAND / WM_SYSCOMMAND / WM_INITDIALOG on EuroScope's UI thread until stopped,
+// to find out which command opens a dialog.
+void StartSpy();
+void StopSpy();
+
 }

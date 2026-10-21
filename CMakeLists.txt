@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ESRunwayPlugin VERSION 0.1.0 LANGUAGES CXX)
+project(ESRunwayPlugin VERSION 0.2.0 LANGUAGES CXX)
 
 # EuroScope is a 32-bit application: a 64-bit DLL will not load.
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
@@ -15,7 +15,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_library(ESRunwayPlugin SHARED
     src/Main.cpp
     src/RunwayPlugin.cpp
-    src/RwyFile.cpp
+    src/RunwayDialog.cpp
     src/WindowProbe.cpp
     src/Log.cpp
 )
