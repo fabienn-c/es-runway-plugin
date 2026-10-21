@@ -44,6 +44,7 @@ struct Airport
     int suspendBelowCeilingFt = -1;  // preferential order suspended below these, -1 = never
     int suspendBelowVisibilityM = -1;
     std::vector<std::string> notInLowVisibility;
+    bool afis = false;  // AFIS aerodrome: pilots choose the runway
     std::vector<Schedule> schedules;
 
     const Schedule* ScheduleAt(int minuteOfDay) const;

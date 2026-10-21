@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ESRunwayPlugin VERSION 0.6.2 LANGUAGES CXX)
+project(ESRunwayPlugin VERSION 0.6.3 LANGUAGES CXX)
 
 # EuroScope is a 32-bit application: a 64-bit DLL will not load.
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)

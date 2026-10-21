@@ -379,7 +379,10 @@ void RunwayPlugin::RunStartup()
         }
         if (!HasFreshMetar(airport.icao))
         {
-            lines.push_back(airport.icao + ": METAR too old (" + state.metar.observation + "), not set");
+            // No current weather (e.g. closed for the night): leave no runway selected.
+            targets.push_back(AirportTarget{airport.icao, {}, {}});
+            lines.push_back(airport.icao + ": METAR too old (" + state.metar.observation + "), no runways selected" +
+                            (airport.afis ? ". AFIS aerodrome: pilots decide which runway to use" : ""));
             continue;
         }
         const core::Decision d = DecideFor(airport.icao);

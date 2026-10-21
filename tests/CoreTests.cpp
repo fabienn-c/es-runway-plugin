@@ -154,6 +154,9 @@ static void TestLecb(const Fir& fir)
     CHECK_EQ(lebl->MatchActive({"24L"}, {"24L"}), std::string("West single runway"));
     CHECK_EQ(lebl->MatchActive({"02"}, {"06R"}), std::string("North crossed"));
 
+    CHECK(fir.Find("LESU")->afis);
+    CHECK(!fir.Find("LEBL")->afis);
+
     // LEZG: 30R preferred, 12 configuration when needed.
     CHECK_EQ(Pick(fir, "LEZG", "LEZG 211200Z 12010KT CAVOK Q1020", day), std::string("RWY 12"));
     CHECK_EQ(Pick(fir, "LEZG", "LEZG 211200Z 31020KT CAVOK Q1020", day), std::string("RWY 30R"));

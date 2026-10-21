@@ -175,6 +175,7 @@
     "LESU": {
       "source": "AIP España AD 2-LESU, AD 2.22 + IAC chart list, AIRAC AMDT 09/26",
       "selection": "approach",
+      "afis": true,
       "configurations": [
         { "name": "RWY 03", "arr": ["03"], "dep": ["03"], "approach": "RNP_LNAV" },
         { "name": "RWY 21", "arr": ["21"], "dep": ["21"], "approach": "VISUAL" }
