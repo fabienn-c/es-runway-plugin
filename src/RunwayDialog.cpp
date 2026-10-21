@@ -78,7 +78,7 @@ void ClickAt(HWND h, POINT p, ClickMethod method)
     SendInput(3, in, sizeof(INPUT));
 }
 
-HWND FindControl(int controlId, const std::string& className)
+HWND FindControlImpl(int controlId, const std::string& className)
 {
     for (HWND top : probe::ProcessTopLevelWindows())
     {
@@ -171,7 +171,7 @@ POINT Click(HWND /*dialog*/, HWND list, int row, int column, ClickMethod method)
 
 bool ReplayOpener(const Opener& opener, ClickMethod method, POINT& previousCursor)
 {
-    const HWND target = FindControl(opener.controlId, opener.className);
+    const HWND target = FindControlImpl(opener.controlId, opener.className);
     if (!target)
         return false;
     GetCursorPos(&previousCursor);
@@ -188,6 +188,15 @@ void PressCancel(HWND dialog)
 {
     PostMessageA(dialog, WM_COMMAND, MAKEWPARAM(IDCANCEL, BN_CLICKED),
                  reinterpret_cast<LPARAM>(GetDlgItem(dialog, IDCANCEL)));
+}
+
+}
+
+namespace rwydialog {
+
+HWND FindEuroScopeControl(int controlId, const std::string& className)
+{
+    return FindControlImpl(controlId, className);
 }
 
 }

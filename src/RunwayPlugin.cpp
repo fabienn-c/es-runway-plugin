@@ -2,6 +2,7 @@
 
 #include "Log.h"
 #include "RunwayDialog.h"
+#include "ScreenCapture.h"
 #include "WindowProbe.h"
 
 #include <algorithm>
@@ -84,6 +85,37 @@ const char* FacilityName(int facility)
     case 6: return "CTR";
     default: return "none/OBS";
     }
+}
+
+constexpr int kTopBarHeight = 80;
+constexpr int kIconWidth = 32;
+constexpr int kIconHeight = 24;
+
+std::string TopBarPath()
+{
+    return logfile::PluginDirectory() + "\\ESRunwayPlugin-topbar.bmp";
+}
+
+std::string IconPath()
+{
+    return logfile::PluginDirectory() + "\\ESRunwayPlugin-icon.bmp";
+}
+
+// The radar view whose top strip holds EuroScope's menu bar.
+HWND RadarView()
+{
+    rwydialog::Opener opener;
+    if (rwydialog::LoadOpener(opener))
+        if (HWND h = rwydialog::FindEuroScopeControl(opener.controlId, opener.className))
+            return h;
+    return rwydialog::FindEuroScopeControl(1, "AfxWnd140");
+}
+
+bool GrabTopBar(HWND view, capture::Image& image)
+{
+    RECT client = {};
+    GetClientRect(view, &client);
+    return capture::Grab(view, RECT{0, 0, client.right, std::min<LONG>(kTopBarHeight, client.bottom)}, image);
 }
 
 void LogAirportRows(const std::vector<rwydialog::Row>& rows, const std::string& icao)
@@ -206,6 +238,53 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
         Say("spying for 60 s: open the Active airport/runway dialog by clicking its icon, then close it");
         return true;
     }
+    if (cmd == "CAPTURE")
+    {
+        const HWND view = RadarView();
+        capture::Image bar;
+        if (!view || !GrabTopBar(view, bar))
+        {
+            Say("could not capture the top bar: is EuroScope in front and not minimised?");
+            return true;
+        }
+        capture::SaveBmp(TopBarPath(), bar);
+        std::string message = "saved the top bar (" + std::to_string(bar.width) + "x" + std::to_string(bar.height) +
+                               ") to " + TopBarPath();
+        rwydialog::Opener opener;
+        if (rwydialog::LoadOpener(opener))
+        {
+            const auto icon = capture::Crop(bar, opener.point.x - kIconWidth / 2, opener.point.y - kIconHeight / 2,
+                                            kIconWidth, kIconHeight);
+            capture::SaveBmp(IconPath(), icon);
+            message += " and the runway icon to " + IconPath();
+        }
+        Say(message);
+        return true;
+    }
+    if (cmd == "FIND")
+    {
+        capture::Image icon, bar;
+        const HWND view = RadarView();
+        if (!capture::LoadBmp(IconPath(), icon))
+            Say("no icon saved yet: run .rwy capture first");
+        else if (!view || !GrabTopBar(view, bar))
+            Say("could not capture the top bar: is EuroScope in front and not minimised?");
+        else
+        {
+            POINT at = {};
+            double difference = 0;
+            capture::FindBest(bar, icon, at, difference);
+            rwydialog::Opener opener;
+            const bool haveOpener = rwydialog::LoadOpener(opener);
+            Say("best match for the runway icon at " + std::to_string(at.x + icon.width / 2) + "," +
+                std::to_string(at.y + icon.height / 2) + " (difference " + std::to_string(difference) +
+                ", 0 = identical)" +
+                (haveOpener ? "; your recorded click was at " + std::to_string(opener.point.x) + "," +
+                                  std::to_string(opener.point.y)
+                            : ""));
+        }
+        return true;
+    }
     if (cmd == "WINDOWS")
     {
         probe::DumpProcessWindows(true);
@@ -220,7 +299,7 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
         return true;
     }
 
-    Say("usage: .rwy info | status <ICAO> | set <ICAO> <DEP,..> <ARR,..> | open | spy | windows | watch");
+    Say("usage: .rwy info | status <ICAO> | set <ICAO> <DEP,..> <ARR,..> | open | spy | capture | find | windows | watch");
     return true;
 }
 

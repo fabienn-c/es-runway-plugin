@@ -16,6 +16,8 @@
 //                                 (if ".rwy spy" recorded how), ticks the runway boxes and presses OK
 //   .rwy open                     only open the runway dialog, then close it
 //   .rwy spy                      for 60 s, log what EuroScope does; open the runway dialog meanwhile
+//   .rwy capture                  save the top bar and the runway icon as .bmp next to the DLL
+//   .rwy find                     search the top bar for the saved runway icon
 //   .rwy windows                  log all EuroScope windows to ESRunwayPlugin.log
 //   .rwy watch                    for 60 s, log every dialog that opens
 class RunwayPlugin : public EuroScopePlugIn::CPlugIn

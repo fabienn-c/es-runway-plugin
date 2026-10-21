@@ -46,6 +46,10 @@ struct Opener
 bool SaveOpener(const Opener& opener);
 bool LoadOpener(Opener& opener);
 
+// Visible child of the main EuroScope window with this control id and class
+// (the radar view holding the top bar is id 1, class "AfxWnd140").
+HWND FindEuroScopeControl(int controlId, const std::string& className);
+
 HWND Find();
 HWND List(HWND dialog);
 std::vector<Row> ReadRows(HWND list);
