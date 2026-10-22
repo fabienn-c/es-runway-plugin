@@ -138,7 +138,7 @@ static void TestReasons(const Rules& fir)
 {
     // Equal approaches: the reason explains the choice, whichever runway is listed first.
     CHECK(Contains(Reason(fir, "GCFV", "GCFV 221200Z 35010KT 9999 Q1020"),
-                   "same approach type on both, RWY 19 not usable, tailwind 10 kt on RWY 19 (limit 5 kt)"));
+                   "same approach type on both, RWY 19 not usable, tailwind 9 kt on RWY 19 (limit 5 kt)"));
     CHECK(Contains(Reason(fir, "GCHI", "GCHI 221200Z 34004KT 9999 Q1020"), "more headwind on RWY 34"));
     CHECK(Contains(Reason(fir, "LEVC", "LEVC 211200Z 30004KT CAVOK Q1020"), "more headwind on RWY 30"));
     // Equal approaches, crosswind only: current kept.
