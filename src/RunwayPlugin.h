@@ -76,6 +76,7 @@ private:
         core::Metar metar;
         bool haveMetar = false;
         std::string period;  // period of the last evaluation (e.g. "day", "night", "day+weekend")
+        int afis = -1;       // AFIS at the last evaluation: 1 yes, 0 no, -1 not evaluated yet
     };
 
     void Say(const std::string& message);
@@ -99,6 +100,7 @@ private:
     void RunStartup();
     void ShowStartupSummary(const StartupPlan& plan, const std::string& failure);
     bool HasFreshMetar(const std::string& icao);
+    bool AfisNow(const core::Airport& airport);  // AFIS today (local weekday), e.g. GCHI only at weekends
     // Shows a suggestion when the recommendation differs from the active runways; returns true if it did.
     bool Evaluate(const std::string& icao, Trigger trigger);
     core::Decision DecideFor(const std::string& icao);

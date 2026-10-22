@@ -82,7 +82,7 @@
         }
       ],
       "notes": [
-        "AFIS aerodrome. No instrument approach procedures: chosen by wind only."
+        "AFIS aerodrome: all runways are deselected, pilots decide which runway to use."
       ]
     },
     "GCHI": {
@@ -117,8 +117,8 @@
         }
       ],
       "notes": [
-        "Tower on weekdays, AFIS at weekends.",
-        "No instrument approach procedures: RWY 34 with calm or variable wind, otherwise the runway with the best wind."
+        "Tower on weekdays, AFIS at weekends (Saturday and Sunday, Canary time): at weekends all runways are deselected, pilots decide which runway to use.",
+        "On weekdays: RWY 34 with calm or variable wind, otherwise the runway with the best wind."
       ]
     },
     "GCLA": {
@@ -426,6 +426,9 @@
           ],
           "approach": "RNP_LNAV"
         }
+      ],
+      "notes": [
+        "AFIS aerodrome: all runways are deselected, pilots decide which runway to use."
       ]
     },
     "LEBB": {
@@ -482,6 +485,9 @@
           ],
           "approach": "RNP_LPV"
         }
+      ],
+      "notes": [
+        "AFIS aerodrome: all runways are deselected, pilots decide which runway to use."
       ]
     },
     "LEBL": {
@@ -825,6 +831,7 @@
         }
       ],
       "notes": [
+        "AFIS aerodrome: all runways are deselected, pilots decide which runway to use.",
         "RWY 12L/30R is restricted (no tailwheel, no wide gear, no training flights) and is not selected."
       ]
     },
@@ -1435,6 +1442,7 @@
         }
       ],
       "notes": [
+        "AFIS aerodrome: all runways are deselected, pilots decide which runway to use.",
         "RNP RWY 03 minima type not in the chart title; ranked as LNAV. RWY 21 landings by visual circling only."
       ]
     },

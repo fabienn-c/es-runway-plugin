@@ -335,11 +335,46 @@ bool RunwayPlugin::HasFreshMetar(const std::string& icao)
     return age >= 0 && age <= core::kMaxMetarAgeMinutes;
 }
 
+bool RunwayPlugin::AfisNow(const core::Airport& airport)
+{
+    return airport.IsAfis(core::LocalWeekday(airport.timezone, std::time(nullptr)));
+}
+
 bool RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
 {
     const core::Airport* airport = m_rules.Find(icao);
+    if (!airport)
+        return false;
     AirportState& state = m_airports[icao];
-    if (!airport || !HasFreshMetar(icao))
+
+    // AFIS: pilots choose the runway, so no runway should be selected. Reminded at startup, when the
+    // airport becomes AFIS (GCHI at weekends) and on .rwy check, not on every METAR.
+    const bool afis = AfisNow(*airport);
+    const int previousAfis = state.afis;
+    state.afis = afis ? 1 : 0;
+    if (afis)
+    {
+        if (!HasActiveRunways(icao))
+        {
+            RemovePopups(Popup::Kind::Suggestion, icao);
+            return false;
+        }
+        if (trigger == Trigger::Metar)
+            return false;
+        Popup p;
+        p.kind = Popup::Kind::Suggestion;
+        p.icao = icao;  // empty configuration: deselect all runways
+        p.title = icao + ": deselect all runways";
+        if (trigger == Trigger::Schedule && previousAfis == 0)
+            p.lines.push_back(icao + " is AFIS from now on (weekend).");
+        p.lines.push_back("AFIS aerodrome: pilots decide which runway to use, so no runway should be selected.");
+        ShowPopup(p);
+        logfile::Write(icao + ": suggested deselecting all runways (AFIS)");
+        return true;
+    }
+    const bool towerAgain = previousAfis == 1;
+
+    if (!HasFreshMetar(icao))
         return false;
 
     const core::Decision d = DecideFor(icao);
@@ -366,7 +401,9 @@ bool RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
     p.lines.push_back("Active:  " + (active ? active->Describe() : std::string("runways not matching any configuration")));
     p.lines.push_back("Suggested:  " + d.configuration->Describe());
     p.lines.push_back("Reason:  " + d.reason);
-    if (trigger == Trigger::Schedule && d.schedule && !d.schedule->IsAllDay())
+    if (towerAgain)
+        p.lines.push_back(icao + " is no longer AFIS (tower on weekdays): the runway configuration is set again.");
+    else if (trigger == Trigger::Schedule && d.schedule && !d.schedule->IsAllDay())
     {
         const std::string start = core::FormatClock(d.schedule->fromMinute);
         if (d.schedule->name == "night")
@@ -444,6 +481,16 @@ RunwayPlugin::StartupPlan RunwayPlugin::BuildStartupPlan()
     {
         const core::Airport& airport = *a;
         AirportState& state = m_airports[airport.icao];
+        const bool afis = AfisNow(airport);
+        state.afis = afis ? 1 : 0;
+        if (afis)
+        {
+            // Pilots choose the runway: none selected, whatever the weather.
+            if (HasActiveRunways(airport.icao))
+                targets.push_back(AirportTarget{airport.icao, {}, {}});
+            issues.push_back(airport.icao + ": AFIS aerodrome, no runways selected: pilots decide which runway to use");
+            continue;
+        }
         if (!state.haveMetar)
         {
             issues.push_back(airport.icao + ": no METAR available, not set");
@@ -454,8 +501,7 @@ RunwayPlugin::StartupPlan RunwayPlugin::BuildStartupPlan()
             // No current weather (e.g. closed for the night): leave no runway selected.
             if (HasActiveRunways(airport.icao))  // already clear: nothing to do, no OK pop-up for it
                 targets.push_back(AirportTarget{airport.icao, {}, {}});
-            issues.push_back(airport.icao + ": METAR too old (" + state.metar.observation + "), no runways selected" +
-                             (airport.IsAfis(core::LocalWeekday(airport.timezone, std::time(nullptr))) ? ". AFIS aerodrome: pilots decide which runway to use" : ""));
+            issues.push_back(airport.icao + ": METAR too old (" + state.metar.observation + "), no runways selected");
             continue;
         }
         const core::Decision d = DecideFor(airport.icao);
@@ -507,7 +553,10 @@ void RunwayPlugin::ReportStatus(const std::string& onlyIcao)
         const AirportState& state = m_airports[airport.icao];
         const std::string current = CurrentConfiguration(airport);
         std::string line = airport.icao + ": active " + (current.empty() ? "-" : current);
-        if (!state.haveMetar)
+        if (AfisNow(airport))
+            line += std::string(" | AFIS aerodrome: no runways (pilots decide)") +
+                    (HasActiveRunways(airport.icao) ? ", runways still ticked" : "");
+        else if (!state.haveMetar)
             line += " | no METAR yet";
         else if (!HasFreshMetar(airport.icao))
             line += " | METAR too old (" + state.metar.observation + "), no recommendation";
@@ -557,7 +606,17 @@ void RunwayPlugin::OnTimer(int Counter)
         for (const core::Airport* airport : SectorAirports())
         {
             const AirportState& state = m_airports[airport->icao];
-            if (!HasFreshMetar(airport->icao) || state.period.empty() || !InScope(airport->icao))
+            // AFIS only on some days (GCHI: weekends): remind at the switch, Saturday 00:00 to AFIS
+            // and Monday 00:00 back to tower (local time).
+            if (!airport->afisDays.empty() && state.afis != -1 && AfisNow(*airport) != (state.afis == 1))
+            {
+                if (InScope(airport->icao))
+                    Evaluate(airport->icao, Trigger::Schedule);
+                else
+                    m_airports[airport->icao].afis = AfisNow(*airport) ? 1 : 0;
+                continue;
+            }
+            if (AfisNow(*airport) || !HasFreshMetar(airport->icao) || state.period.empty() || !InScope(airport->icao))
                 continue;
             if (DecideFor(airport->icao).period != state.period)
                 Evaluate(airport->icao, Trigger::Schedule);
@@ -587,7 +646,14 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
             {
                 if (!InScope(airport->icao))
                     continue;
-                if (!HasFreshMetar(airport->icao))
+                if (AfisNow(*airport))
+                {
+                    if (Evaluate(airport->icao, Trigger::Manual))  // reminds only if runways are ticked
+                        ++suggested;
+                    else
+                        ++set;
+                }
+                else if (!HasFreshMetar(airport->icao))
                     stale += " " + airport->icao;
                 else if (Evaluate(airport->icao, Trigger::Manual))
                     ++suggested;
@@ -737,7 +803,8 @@ void RunwayPlugin::OnPopupButton(const std::string& button)
     {
         const core::Airport* airport = m_rules.Find(popup.icao);
         const core::Configuration* c = airport ? FindConfiguration(*airport, popup.configuration) : nullptr;
-        if (!c)
+        const bool clearAll = airport && popup.configuration.empty();  // AFIS: deselect every runway
+        if (!c && !clearAll)
             return;
         if (m_applier.Busy())
         {
@@ -745,8 +812,10 @@ void RunwayPlugin::OnPopupButton(const std::string& button)
             return;
         }
         m_popups.pop_front();
-        const std::string icao = popup.icao, description = c->Describe();
-        Apply({TargetFor(icao, *c)}, [this, icao, description](bool ok, const std::string& message) {
+        const std::string icao = popup.icao;
+        const std::string description = c ? c->Describe() : std::string("no runways (AFIS)");
+        const AirportTarget target = c ? TargetFor(icao, *c) : AirportTarget{icao, {}, {}};
+        Apply({target}, [this, icao, description](bool ok, const std::string& message) {
             if (ok)
                 Say(icao + ": " + description + " set");
             else
