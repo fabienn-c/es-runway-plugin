@@ -203,12 +203,39 @@ Decision DecideBySchedule(const Rules& rules, const Airport& airport, const Meta
     }
     d.configuration = pick->configuration;
 
-    if (pick == &evaluated.front())
+    // Other configurations with the same approach type: explain how the choice between them was made,
+    // whichever of them happens to be listed first.
+    const ConfigWind* unusableRival = nullptr;
+    bool tie = false, moreHeadwind = true;
+    if (airport.selection == Selection::Approach)
+    {
+        const int rank = rules.ApproachRank(pick->configuration->approach);
+        for (const auto& w : evaluated)
+        {
+            if (&w == pick || rules.ApproachRank(w.configuration->approach) != rank)
+                continue;
+            if (!w.withinLimits)
+            {
+                if (!unusableRival)
+                    unusableRival = &w;
+                continue;
+            }
+            tie = true;
+            moreHeadwind = moreHeadwind && pick->leastHeadwind > w.leastHeadwind + 1.0;
+        }
+    }
+
+    if (tie && moreHeadwind)
+        d.reason = wind + ": same approach type on both, more headwind on " + pick->configuration->name;
+    else if (tie && pick->configuration->name == currentConfiguration)
+        d.reason = wind + ": same approach type and similar wind on both, current configuration kept";
+    else if (tie)
+        d.reason = wind + ": same approach type and similar wind on both, " + pick->configuration->name;
+    else if (unusableRival)
+        d.reason = wind + ": same approach type on both, " + unusableRival->configuration->name + " not usable, " +
+                   LimitText(*unusableRival, airport);
+    else if (pick == &evaluated.front())
         d.reason = wind + ": " + (airport.selection == Selection::Preferential ? "preferential configuration" : "runway with the best approach") + " within limits";
-    else if (evaluated.front().withinLimits)
-        d.reason = wind + ": same approach type on both, " +
-                   (pick->configuration->name == currentConfiguration ? std::string("current configuration kept")
-                                                                      : "more headwind on " + pick->configuration->name);
     else
         d.reason = wind + ": " + evaluated.front().configuration->name + " not usable, " + LimitText(evaluated.front(), airport);
     return d;

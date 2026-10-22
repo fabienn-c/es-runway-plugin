@@ -119,8 +119,40 @@ static void TestComponents()
     CHECK(std::abs(cross.crosswind - 20) < 0.01);
 }
 
+static std::string Reason(const Rules& fir, const std::string& icao, const std::string& metar,
+                          const std::string& current = "")
+{
+    const Airport* a = fir.Find(icao);
+    return a ? Decide(fir, *a, M(metar), RunwayHeadings{}, 12 * 60, current).reason : "";
+}
+
+static bool Contains(const std::string& text, const std::string& part)
+{
+    const bool found = text.find(part) != std::string::npos;
+    if (!found)
+        std::printf("  reason was: %s\n", text.c_str());
+    return found;
+}
+
+static void TestReasons(const Rules& fir)
+{
+    // Equal approaches: the reason explains the choice, whichever runway is listed first.
+    CHECK(Contains(Reason(fir, "GCFV", "GCFV 221200Z 35010KT 9999 Q1020"),
+                   "same approach type on both, RWY 19 not usable, tailwind 10 kt on RWY 19 (limit 5 kt)"));
+    CHECK(Contains(Reason(fir, "GCHI", "GCHI 221200Z 34004KT 9999 Q1020"), "more headwind on RWY 34"));
+    CHECK(Contains(Reason(fir, "LEVC", "LEVC 211200Z 30004KT CAVOK Q1020"), "more headwind on RWY 30"));
+    // Equal approaches, crosswind only: current kept.
+    CHECK(Contains(Reason(fir, "GCFV", "GCFV 221200Z 10010KT 9999 Q1020", "RWY 19"), "current configuration kept"));
+    // Not a tie: best approach / preferential / not usable, unchanged.
+    CHECK(Contains(Reason(fir, "LEGE", "LEGE 211200Z 01004KT CAVOK Q1020"), "runway with the best approach within limits"));
+    CHECK(Contains(Reason(fir, "LEBL", "LEBL 211200Z 06008KT 9999 Q1020"), "preferential configuration within limits"));
+    CHECK(Contains(Reason(fir, "LEVC", "LEVC 211200Z 30008KT CAVOK Q1020"), "RWY 12 not usable, tailwind 8 kt on RWY 12"));
+    CHECK(Contains(Reason(fir, "LEIB", "LEIB 211200Z 06007KT CAVOK Q1020"), "RWY 24 not usable"));
+}
+
 static void TestRules(const Rules& fir)
 {
+    TestReasons(fir);
     CHECK_EQ(fir.name, std::string("LEXX"));
     CHECK_EQ(fir.airports.size(), static_cast<size_t>(56));
 
