@@ -8,8 +8,12 @@ day/night rules.
 
 ## What it does
 
-- **At startup** (as soon as the sector and METARs are loaded) it sets the runways of every airport of
-  the runway dialog (airports without rules, e.g. foreign ones, get all runways deselected) and shows a summary pop-up. It never touches the airport DEP/ARR ticks, only runways.
+- **At startup** (as soon as the sector and METARs are loaded) a pop-up asks the controller to press OK and
+  open the *Active airport/runway* dialog; the plugin then ticks the runways of every airport in the dialog
+  (airports without rules, e.g. foreign ones, get all runways deselected), presses OK and shows a summary.
+  It never touches the airport DEP/ARR ticks, only runways.
+- **Clicking only happens while EuroScope is the active window.** Switching to another program pauses it;
+  it continues when EuroScope is in front again (gives up after 2 minutes away).
 - **Afterwards**, every new METAR and every day/night change (LEBL 23:00 / 07:00 LT) is checked. If the
   recommended configuration differs from the active one, a pop-up offers **Accept** / **Decline**.
   Nothing changes without the controller accepting.
@@ -38,7 +42,7 @@ Works with EuroScope 3.2.x (32-bit). Details are logged to `ESRunwayPlugin.log` 
 |---|---|
 | `.rwy status [ICAO]` | Active and recommended configuration per airport, with the reason |
 | `.rwy check` | Re-check now (also downloads the METARs again) |
-| `.rwy startup` | Run the startup assignment again |
+| `.rwy startup` | Show the startup pop-up again (set all runways via the dialog) |
 | `.rwy accept` / `.rwy decline` | Answer the current suggestion from the command line |
 | `.rwy airports` | Airports handled in this sector, and those without rules (cleared) |
 | `.rwy find` | Check that the runway icon is found in the top bar |

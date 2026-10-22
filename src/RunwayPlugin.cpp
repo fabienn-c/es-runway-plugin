@@ -365,12 +365,63 @@ bool RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
     return true;
 }
 
+void RunwayPlugin::OfferStartup()
+{
+    m_startupDone = true;
+    m_waitingForStartupDialog = false;
+    const StartupPlan plan = BuildStartupPlan();
+    if (plan.targets.empty())
+    {
+        ShowStartupSummary(plan, "");  // nothing to change: no dialog needed
+        return;
+    }
+    // The controller opens the dialog: EuroScope is in front and nobody is surprised by the clicking.
+    RemovePopups(Popup::Kind::StartupPrompt);
+    Popup p;
+    p.kind = Popup::Kind::StartupPrompt;
+    p.title = "Runway configuration ready";
+    p.lines = {"Runways are ready to be set for " + std::to_string(plan.targets.size()) + " airports.",
+               "Press OK, then open the Active airport/runway dialog: the plugin will tick the runways and press OK "
+               "by itself.",
+               "Don't use the mouse while it works (about " + std::to_string(std::max<size_t>(5, plan.targets.size() / 4)) +
+                   " seconds)."};
+    ShowPopup(p);
+}
+
 void RunwayPlugin::RunStartup()
 {
     m_startupDone = true;
-    std::vector<AirportTarget> targets;
-    std::vector<std::string> issues, set;  // issues are listed first so they are seen without scrolling
-    int changed = 0, alreadyActive = 0;
+    m_waitingForStartupDialog = false;
+    const StartupPlan plan = BuildStartupPlan();  // fresh: METARs may have changed since the offer
+    if (plan.targets.empty())
+    {
+        ShowStartupSummary(plan, "");
+        return;
+    }
+    Apply(plan.targets, [this, plan](bool ok, const std::string& message) { ShowStartupSummary(plan, ok ? "" : message); });
+}
+
+void RunwayPlugin::ShowStartupSummary(const StartupPlan& plan, const std::string& failure)
+{
+    Popup p;
+    p.title = "Runways set automatically";
+    if (!failure.empty())
+        p.lines.push_back("Not completed: " + failure + ". Check the runways manually.");
+    p.lines.insert(p.lines.end(), plan.issues.begin(), plan.issues.end());
+    p.lines.push_back(std::to_string(plan.changed) + " airports set, " + std::to_string(plan.alreadyActive) +
+                      " already active. You can change any of them in the runway dialog.");
+    p.lines.insert(p.lines.end(), plan.set.begin(), plan.set.end());
+    ShowPopup(p);
+}
+
+RunwayPlugin::StartupPlan RunwayPlugin::BuildStartupPlan()
+{
+    StartupPlan plan;
+    std::vector<AirportTarget>& targets = plan.targets;
+    std::vector<std::string>& issues = plan.issues;  // listed first so they are seen without scrolling
+    std::vector<std::string>& set = plan.set;
+    int& changed = plan.changed;
+    int& alreadyActive = plan.alreadyActive;
     for (const core::Airport* a : SectorAirports())
     {
         const core::Airport& airport = *a;
@@ -418,25 +469,7 @@ void RunwayPlugin::RunStartup()
     }
     if (!cleared.empty())
         issues.push_back("No runway rules, no runways selected: " + cleared);
-
-    const std::string count = std::to_string(changed) + " airports set, " + std::to_string(alreadyActive) +
-                              " already active. You can change any of them in the runway dialog.";
-    auto show = [this, issues, set, count](const std::string& failure) {
-        Popup p;
-        p.title = "Runways set automatically";
-        if (!failure.empty())
-            p.lines.push_back("Not completed: " + failure + ". Check the runways manually.");
-        p.lines.insert(p.lines.end(), issues.begin(), issues.end());
-        p.lines.push_back(count);
-        p.lines.insert(p.lines.end(), set.begin(), set.end());
-        ShowPopup(p);
-    };
-    if (targets.empty())
-    {
-        show("");
-        return;
-    }
-    Apply(targets, [show](bool ok, const std::string& message) { show(ok ? "" : message); });
+    return plan;
 }
 
 void RunwayPlugin::ReportStatus(const std::string& onlyIcao)
@@ -492,9 +525,13 @@ void RunwayPlugin::OnTimer(int Counter)
         for (const auto& [icao, state] : m_airports)
             all = all && state.haveMetar;
         if (all || firstFetchDone || Counter - m_readyAtTick >= kStartupMetarWaitTicks)
-            RunStartup();
+            OfferStartup();
         return;
     }
+
+    // OK was pressed on the startup prompt: run as soon as the controller opens the runway dialog.
+    if (m_waitingForStartupDialog && !m_applier.Busy() && rwydialog::Find())
+        RunStartup();
 
     // Period changes (day/night at LEBL/LEMD, LEMD weekend nights until 09:00), checked once a minute.
     const std::time_t now = std::time(nullptr);
@@ -552,7 +589,7 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
         else if (m_applier.Busy())
             Say("still applying runways, try again in a moment");
         else
-            RunStartup();
+            OfferStartup();
     }
     else if (cmd == "ACCEPT" || cmd == "DECLINE")
     {
@@ -623,7 +660,7 @@ void RunwayPlugin::ShowPopup(Popup popup)
     popup.id = m_nextPopupId++;
     if (popup.kind == Popup::Kind::Suggestion)
         RemovePopups(Popup::Kind::Suggestion, popup.icao);
-    if (popup.kind == Popup::Kind::Info)
+    if (popup.kind == Popup::Kind::Info || popup.kind == Popup::Kind::StartupPrompt)
         m_popups.push_front(popup);
     else
         m_popups.push_back(popup);
@@ -710,6 +747,11 @@ void RunwayPlugin::OnPopupButton(const std::string& button)
         m_popups.pop_front();
         if (button == "decline")
             logfile::Write(popup.icao + ": suggestion " + popup.configuration + " declined");
+        if (popup.kind == Popup::Kind::StartupPrompt)
+        {
+            m_waitingForStartupDialog = true;
+            Say("open the Active airport/runway dialog: the plugin will set the runways and press OK");
+        }
     }
     Refresh();
 }

@@ -39,6 +39,9 @@ const char* MethodName(ClickMethod method);
 // (the radar view holding the top bar is id 1, class "AfxWnd140").
 HWND FindEuroScopeControl(int controlId, const std::string& className);
 
+// True when the active (foreground) window belongs to EuroScope: its main window or one of its dialogs.
+bool EuroScopeIsActive();
+
 HWND Find();
 HWND List(HWND dialog);
 std::vector<Row> ReadRows(HWND list);

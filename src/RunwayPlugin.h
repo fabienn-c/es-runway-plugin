@@ -84,7 +84,20 @@ private:
     std::vector<const core::Airport*> SectorAirports() const;  // airports with rules in this sector
     void ReadRunwayHeadings();
     void HandleMetarLine(const std::string& line);
+
+    // Startup: offered with an OK-only pop-up, run when the controller opens the runway dialog.
+    struct StartupPlan
+    {
+        std::vector<AirportTarget> targets;
+        std::vector<std::string> issues;  // no METAR, too old, no rules...
+        std::vector<std::string> set;     // one line per airport with its configuration
+        int changed = 0;
+        int alreadyActive = 0;
+    };
+    StartupPlan BuildStartupPlan();
+    void OfferStartup();
     void RunStartup();
+    void ShowStartupSummary(const StartupPlan& plan, const std::string& failure);
     bool HasFreshMetar(const std::string& icao);
     // Shows a suggestion when the recommendation differs from the active runways; returns true if it did.
     bool Evaluate(const std::string& icao, Trigger trigger);
@@ -116,6 +129,7 @@ private:
     std::set<RunwayScreen*> m_screens;
 
     bool m_startupDone = false;
+    bool m_waitingForStartupDialog = false;  // OK pressed on the startup prompt, waiting for the dialog
     int m_readyAtTick = -1;
     int m_lastTick = 0;
     long long m_lastScheduleMinute = -1;

@@ -12,6 +12,7 @@ constexpr int kClickWaitTicks = 6;         // 0.6 s for a tick to show
 constexpr int kTriesPerMethod = 2;         // clicks without effect before trying the next method
 constexpr int kCloseWaitTicks = 30;        // 3 s for the dialog to close after OK
 constexpr int kReopenWaitTicks = 10;       // 1 s between closing the dialog and the retry
+constexpr int kMaxPauseTicks = 1200;       // 2 min away from EuroScope before giving up
 constexpr int kMaxClicks = 600;  // a whole sector with every runway ticked needs a few hundred
 constexpr int kMethodCount = static_cast<int>(rwydialog::ClickMethod::Count);
 
@@ -24,8 +25,8 @@ bool RunwayApplier::Start(std::vector<AirportTarget> targets, DoneCallback done)
     m_targets = std::move(targets);
     m_done = std::move(done);
     m_missing.clear();
-    m_method = m_openAttempts = m_clicks = m_ticks = m_failedClicks = 0;
-    m_waitingForClick = m_settled = m_retried = false;
+    m_method = m_openAttempts = m_clicks = m_ticks = m_failedClicks = m_pausedTicks = 0;
+    m_waitingForClick = m_settled = m_retried = m_paused = false;
     GetCursorPos(&m_savedCursor);
     m_state = State::Opening;
     std::string list;
@@ -39,7 +40,8 @@ void RunwayApplier::Finish(bool ok, const std::string& message)
 {
     if (m_state == State::WaitingForUser && m_needUser)
         m_needUser(false);
-    SetCursorPos(m_savedCursor.x, m_savedCursor.y);
+    if (rwydialog::EuroScopeIsActive())  // never move the pointer while the controller is in another program
+        SetCursorPos(m_savedCursor.x, m_savedCursor.y);
     m_state = State::Idle;
     logfile::Write(std::string(ok ? "runways applied" : "runways NOT applied") + (message.empty() ? "" : ": " + message));
     auto done = std::move(m_done);
@@ -52,6 +54,35 @@ void RunwayApplier::Tick()
 {
     if (m_state == State::Idle)
         return;
+
+    // Clicking moves the pointer: only while EuroScope (or its runway dialog) is the active window.
+    // If the controller switches to another program, pause and continue where we left off.
+    if ((m_state == State::Opening || m_state == State::Ticking) && !rwydialog::EuroScopeIsActive())
+    {
+        if (!m_paused)
+        {
+            m_paused = true;
+            m_pausedTicks = 0;
+            logfile::Write("paused: EuroScope is not the active window");
+        }
+        if (++m_pausedTicks > kMaxPauseTicks)
+        {
+            if (const HWND open = rwydialog::Find())
+                rwydialog::PressCancel(open);
+            Finish(false, "EuroScope was not the active window for 2 minutes");
+        }
+        return;
+    }
+    if (m_paused)
+    {
+        m_paused = false;
+        m_settled = false;          // let the dialog settle again before the next click
+        m_waitingForClick = false;  // re-read the boxes: a click interrupted by the switch is simply redone
+        m_failedClicks = 0;
+        m_ticks = 0;
+        logfile::Write("resumed: EuroScope is the active window again");
+    }
+
     ++m_ticks;
     const HWND dialog = rwydialog::Find();
 

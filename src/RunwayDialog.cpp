@@ -70,6 +70,16 @@ HWND FindEuroScopeControl(int controlId, const std::string& className)
     return nullptr;
 }
 
+bool EuroScopeIsActive()
+{
+    const HWND foreground = GetForegroundWindow();
+    if (!foreground || IsIconic(GetAncestor(foreground, GA_ROOTOWNER)))
+        return false;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(foreground, &pid);
+    return pid == GetCurrentProcessId();
+}
+
 HWND Find()
 {
     for (HWND dialog : probe::CurrentDialogs())
@@ -125,7 +135,9 @@ POINT ClickWindow(HWND window, POINT p, ClickMethod method)
         return previousCursor;
     }
 
-    SetForegroundWindow(GetAncestor(window, GA_ROOT));
+    // A real click goes to whatever window is under the pointer: only while EuroScope is in front.
+    if (!EuroScopeIsActive())
+        return previousCursor;
     const int w = GetSystemMetrics(SM_CXVIRTUALSCREEN), h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
     const int x0 = GetSystemMetrics(SM_XVIRTUALSCREEN), y0 = GetSystemMetrics(SM_YVIRTUALSCREEN);
     INPUT in[3] = {};

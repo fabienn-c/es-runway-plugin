@@ -61,6 +61,8 @@ private:
     int m_failedClicks = 0;   // consecutive clicks without effect with the current method
     bool m_settled = false;   // the dialog has been open long enough to accept clicks
     bool m_retried = false;   // the whole pass was already repeated once
+    bool m_paused = false;    // EuroScope is not the active window: no clicks until it is again
+    int m_pausedTicks = 0;
     bool m_waitingForClick = false;
     int m_clickRow = 0;
     int m_clickColumn = 0;

@@ -8,9 +8,10 @@ struct Popup
 {
     enum class Kind
     {
-        Summary,     // startup result: OK
-        Suggestion,  // runway change: Accept / Decline
-        Info         // "please open the runway dialog": Dismiss
+        Summary,        // startup result: OK
+        Suggestion,     // runway change: Accept / Decline
+        Info,           // "please open the runway dialog": Dismiss
+        StartupPrompt   // "press OK, then open the runway dialog": OK only
     };
 
     int id = 0;
