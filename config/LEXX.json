@@ -28,17 +28,8 @@
     "GEML": {
       "source": "AIP España AD 2-GEML, AD 2.19 + AD 2.22, AIRAC AMDT 09/26",
       "selection": "approach",
+      "calmConfiguration": "RWY 15",
       "configurations": [
-        {
-          "name": "RWY 33",
-          "arr": [
-            "33"
-          ],
-          "dep": [
-            "33"
-          ],
-          "approach": "VISUAL"
-        },
         {
           "name": "RWY 15",
           "arr": [
@@ -48,10 +39,20 @@
             "15"
           ],
           "approach": "VISUAL"
+        },
+        {
+          "name": "RWY 33",
+          "arr": [
+            "33"
+          ],
+          "dep": [
+            "33"
+          ],
+          "approach": "VISUAL"
         }
       ],
       "notes": [
-        "VOR and NDB approaches exist but the chart list does not say to which runway. TO REVIEW: preferred runway at Melilla."
+        "No preferential runway (VATSIM Spain operations): chosen by wind; RWY 15 with calm or variable wind."
       ]
     },
     "LEAB": {
@@ -726,7 +727,7 @@
         }
       ],
       "notes": [
-        "The sector file also has runway 06/24. TO REVIEW: it is not selected."
+        "Runway 06/24 (secondary) is not selected."
       ]
     },
     "LEMD": {
@@ -797,7 +798,7 @@
         }
       ],
       "notes": [
-        "In South configuration, on Friday-Saturday and Saturday-Sunday nights the night period runs 23:00-09:00 LT when operations allow (not modelled: weekday schedules are not supported yet).",
+        "In South configuration, on Friday-Saturday and Saturday-Sunday nights the night period runs 23:00-09:00 LT when operations allow (not modelled: controllers apply the weekend procedure themselves).",
         "Arrivals by geographic criterion: from the east to 32R/18L, from the west to 32L/18R.",
         "Preferential configurations are also suspended with braking action below good, wind shear or thunderstorms."
       ]
@@ -830,7 +831,7 @@
         }
       ],
       "notes": [
-        "AIP also lists single-runway variants: South ARR/DEP 13, North ARR/DEP 31. TO REVIEW: which one VATSIM Spain uses."
+        "Two-runway configurations used (VATSIM Spain operations). The AIP also lists single-runway variants: South 13, North 31."
       ]
     },
     "LEMH": {
@@ -1103,7 +1104,7 @@
         }
       ],
       "notes": [
-        "Runway 07/25 is not selected (secondary). TO REVIEW."
+        "Runway 07/25 (secondary) is not selected."
       ]
     },
     "LESO": {
@@ -1295,7 +1296,7 @@
         }
       ],
       "notes": [
-        "Runway 14/32 is not selected (secondary). TO REVIEW."
+        "Runway 14/32 (secondary) is not selected."
       ]
     },
     "LEVT": {

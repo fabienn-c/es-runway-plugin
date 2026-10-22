@@ -135,6 +135,15 @@ Decision Decide(const Rules& rules, const Airport& airport, const Metar& metar, 
     const std::string wind = "wind " + metar.WindText();
     if (metar.calm || metar.variable)
     {
+        for (const auto* c : candidates)
+        {
+            if (c->name == airport.calmConfiguration)
+            {
+                d.configuration = c;
+                d.reason = wind + ": calm/variable wind configuration";
+                return d;
+            }
+        }
         const Configuration* pick = candidates.front();
         if (airport.selection == Selection::Approach)
         {

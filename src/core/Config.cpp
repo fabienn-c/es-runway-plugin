@@ -56,6 +56,7 @@ Airport ReadAirport(const std::string& icao, const json& j, int defaultTail, int
     }
     a.notInLowVisibility = j.value("notInLowVisibility", std::vector<std::string>{});
     a.afis = j.value("afis", false);
+    a.calmConfiguration = j.value("calmConfiguration", "");
 
     if (j.contains("schedules"))
     {

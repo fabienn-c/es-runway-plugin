@@ -46,6 +46,7 @@ struct Airport
     int suspendBelowVisibilityM = -1;
     std::vector<std::string> notInLowVisibility;
     bool afis = false;  // AFIS aerodrome: pilots choose the runway
+    std::string calmConfiguration;  // used with calm/variable wind instead of the usual choice (optional)
     std::vector<Schedule> schedules;
 
     const Schedule* ScheduleAt(int minuteOfDay) const;

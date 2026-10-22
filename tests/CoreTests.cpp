@@ -136,6 +136,14 @@ static void TestRules(const Rules& fir)
     CHECK_EQ(Pick(fir, "LEST", "LEST 211200Z 35004KT CAVOK Q1020", 12 * 60), std::string("RWY 17"));
     CHECK_EQ(Pick(fir, "LEST", "LEST 211200Z 35009KT CAVOK Q1020", 12 * 60), std::string("RWY 35"));
     CHECK(fir.Find("LEBG")->afis && fir.Find("LEHC")->afis && fir.Find("LEBA")->afis);
+    // GEML: wind only; calm or variable -> RWY 15, even if 33 is active.
+    CHECK_EQ(Pick(fir, "GEML", "GEML 211200Z 00000KT CAVOK Q1020", 12 * 60, "RWY 33"), std::string("RWY 15"));
+    CHECK_EQ(Pick(fir, "GEML", "GEML 211200Z VRB04KT CAVOK Q1020", 12 * 60, "RWY 33"), std::string("RWY 15"));
+    CHECK_EQ(Pick(fir, "GEML", "GEML 211200Z 33008KT CAVOK Q1020", 12 * 60, "RWY 15"), std::string("RWY 33"));
+    CHECK_EQ(Pick(fir, "GEML", "GEML 211200Z 15008KT CAVOK Q1020", 12 * 60, "RWY 33"), std::string("RWY 15"));
+    // LEMG: two-runway configurations.
+    const auto* lemgSouth = fir.Find("LEMG")->AllConfigurations().front();
+    CHECK(lemgSouth->arrivals == std::vector<std::string>{"12"} && lemgSouth->departures == std::vector<std::string>{"13"});
     const int day = 12 * 60, night = 1 * 60;
 
     // LEBL day: west preferred up to 10 kt tailwind, gusts included.
