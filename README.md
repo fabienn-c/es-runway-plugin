@@ -4,7 +4,7 @@ EuroScope plugin for VATSIM Spain that recommends and sets the active runways of
 runway dialog from the VATSIM METAR, the AIP preferential configurations, the best available approach and
 day/night rules.
 
-**Status: beta.** LECB and LECM airports are configured; GCCC follows.
+**Status: beta.** All three FIRs (LECB, LECM, GCCC) are configured: 56 airports.
 
 ## What it does
 

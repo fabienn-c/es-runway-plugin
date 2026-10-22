@@ -122,7 +122,17 @@ static void TestComponents()
 static void TestRules(const Rules& fir)
 {
     CHECK_EQ(fir.name, std::string("LEXX"));
-    CHECK_EQ(fir.airports.size(), static_cast<size_t>(48));
+    CHECK_EQ(fir.airports.size(), static_cast<size_t>(56));
+
+    // GCCC: Canary time zone, GCLP north preferred, GCLA 36 up to 10 kt tail / 25 kt cross.
+    CHECK_EQ(fir.Find("GCLP")->timezone, std::string("Atlantic/Canary"));
+    CHECK_EQ(Pick(fir, "GCLP", "GCLP 221200Z 03015KT 9999 Q1020", 12 * 60), std::string("North"));
+    CHECK_EQ(Pick(fir, "GCLP", "GCLP 221200Z 21008KT 9999 Q1020", 12 * 60), std::string("South"));
+    CHECK_EQ(Pick(fir, "GCLP", "GCLP 221200Z VRB02KT 9999 Q1020", 12 * 60, "South"), std::string("North"));
+    CHECK_EQ(Pick(fir, "GCLA", "GCLA 221200Z 18009KT 9999 Q1020", 12 * 60), std::string("RWY 36"));
+    CHECK_EQ(Pick(fir, "GCLA", "GCLA 221200Z 18012KT 9999 Q1020", 12 * 60), std::string("RWY 18"));
+    CHECK_EQ(Pick(fir, "GCRR", "GCRR 221200Z 21004KT 9999 Q1020", 12 * 60), std::string("RWY 03"));
+    CHECK(fir.Find("GCGM")->afis && fir.Find("GCHI")->afis);
     CHECK_EQ(fir.Find("LEBL")->timezone, std::string("Europe/Madrid"));
     CHECK(fir.Find("LEZG") && fir.Find("LELC") && fir.Find("LEAM"));  // once, shared by LECB and LECM
 

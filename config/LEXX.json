@@ -25,6 +25,231 @@
     "approach": "No AIP preference: the runway with the best approach (approachRanking) if within the wind limits, otherwise the runway the wind suits best. Equal approach: most headwind; equal and calm: keep the current configuration (at startup the first listed)."
   },
   "airports": {
+    "GCFV": {
+      "source": "AIP España AD 2-GCFV, AD 2.19 + IAC chart list, AMDT 408/26",
+      "selection": "approach",
+      "configurations": [
+        {
+          "name": "RWY 01",
+          "arr": [
+            "01"
+          ],
+          "dep": [
+            "01"
+          ],
+          "approach": "ILS_CAT_I"
+        },
+        {
+          "name": "RWY 19",
+          "arr": [
+            "19"
+          ],
+          "dep": [
+            "19"
+          ],
+          "approach": "ILS_CAT_I"
+        }
+      ]
+    },
+    "GCGM": {
+      "source": "AIP España AD 2-GCGM, AD 2.19, AMDT 408/26",
+      "selection": "approach",
+      "afis": true,
+      "configurations": [
+        {
+          "name": "RWY 09",
+          "arr": [
+            "09"
+          ],
+          "dep": [
+            "09"
+          ],
+          "approach": "VISUAL"
+        },
+        {
+          "name": "RWY 27",
+          "arr": [
+            "27"
+          ],
+          "dep": [
+            "27"
+          ],
+          "approach": "VISUAL"
+        }
+      ],
+      "notes": [
+        "No instrument approach procedures: chosen by wind only."
+      ]
+    },
+    "GCHI": {
+      "source": "AIP España AD 2-GCHI, AD 2.19, AIRAC AMDT 05/26",
+      "selection": "approach",
+      "afis": true,
+      "configurations": [
+        {
+          "name": "RWY 16",
+          "arr": [
+            "16"
+          ],
+          "dep": [
+            "16"
+          ],
+          "approach": "VISUAL"
+        },
+        {
+          "name": "RWY 34",
+          "arr": [
+            "34"
+          ],
+          "dep": [
+            "34"
+          ],
+          "approach": "VISUAL"
+        }
+      ],
+      "notes": [
+        "No instrument approach procedures: chosen by wind only. AFIS outside TWR hours."
+      ]
+    },
+    "GCLA": {
+      "source": "AIP España AD 2-GCLA, AD 2.20 'Pistas preferentes', AIRAC AMDT 09/26",
+      "selection": "preferential",
+      "limits": {
+        "maxTailwindKt": 10,
+        "maxCrosswindKt": 25
+      },
+      "configurations": [
+        {
+          "name": "RWY 36",
+          "arr": [
+            "36"
+          ],
+          "dep": [
+            "36"
+          ]
+        },
+        {
+          "name": "RWY 18",
+          "arr": [
+            "18"
+          ],
+          "dep": [
+            "18"
+          ]
+        }
+      ],
+      "notes": [
+        "AIP: RWY 36 for take-offs and landings up to 10 kt tailwind and/or 25 kt crosswind."
+      ]
+    },
+    "GCLP": {
+      "source": "AIP España AD 2-GCLP, AD 2.20 'Pistas preferentes', AIRAC AMDT 09/26",
+      "selection": "preferential",
+      "configurations": [
+        {
+          "name": "North",
+          "arr": [
+            "03L"
+          ],
+          "dep": [
+            "03R"
+          ]
+        },
+        {
+          "name": "South",
+          "arr": [
+            "21R"
+          ],
+          "dep": [
+            "21L"
+          ]
+        }
+      ],
+      "notes": [
+        "AIP: North configuration preferred. No wind limit given: default limits."
+      ]
+    },
+    "GCRR": {
+      "source": "AIP España AD 2-GCRR, AD 2.19 + IAC chart list, AIRAC AMDT 08/26",
+      "selection": "approach",
+      "configurations": [
+        {
+          "name": "RWY 03",
+          "arr": [
+            "03"
+          ],
+          "dep": [
+            "03"
+          ],
+          "approach": "ILS_CAT_I"
+        },
+        {
+          "name": "RWY 21",
+          "arr": [
+            "21"
+          ],
+          "dep": [
+            "21"
+          ],
+          "approach": "VISUAL"
+        }
+      ]
+    },
+    "GCTS": {
+      "source": "AIP España AD 2-GCTS, AD 2.19 + IAC chart list, AIRAC AMDT 09/26",
+      "selection": "approach",
+      "configurations": [
+        {
+          "name": "RWY 07",
+          "arr": [
+            "07"
+          ],
+          "dep": [
+            "07"
+          ],
+          "approach": "ILS_CAT_I"
+        },
+        {
+          "name": "RWY 25",
+          "arr": [
+            "25"
+          ],
+          "dep": [
+            "25"
+          ],
+          "approach": "ILS_CAT_I"
+        }
+      ],
+      "notes": [
+        "AIP: on approach to RWY 07 below 2100 ft the wind is often a 5-10 kt tailwind, turning to headwind lower down."
+      ]
+    },
+    "GCXO": {
+      "source": "AIP España AD 2-GCXO, AD 2.19 + IAC chart list, AIRAC AMDT 09/26",
+      "selection": "approach",
+      "configurations": [
+        {
+          "name": "RWY 12",
+          "arr": [
+            "12"
+          ],
+          "dep": [
+            "12"
+          ],
+          "approach": "ILS_CAT_I"
+        },
+        {
+          "name": "RWY 30",
+          "arr": [
+            "30"
+          ],
+          "dep": [
+            "30"
+          ],
+          "approach": "ILS_CAT_I"
+        }
+      ]
+    },
     "GEML": {
       "source": "AIP España AD 2-GEML, AD 2.19 + AD 2.22, AIRAC AMDT 09/26",
       "selection": "approach",
