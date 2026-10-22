@@ -160,6 +160,7 @@ bool LoadFir(const std::string& path, Fir& out, std::string& error)
         fir.name = j.at("fir").get<std::string>();
         fir.timezone = j.value("timezone", "Europe/Madrid");
         fir.approachRanking = j.value("approachRanking", std::vector<std::string>{});
+        fir.clearRunways = j.value("clearRunways", std::vector<std::string>{});
         const json defaults = j.value("defaults", json::object());
         const int tail = defaults.value("maxTailwindKt", 5);
         const int cross = defaults.value("maxCrosswindKt", 15);

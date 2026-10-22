@@ -61,6 +61,7 @@ struct Fir
     std::string timezone;
     std::vector<std::string> approachRanking;  // best first
     std::vector<Airport> airports;
+    std::vector<std::string> clearRunways;     // e.g. foreign airports in the sector: all runways deselected
 
     const Airport* Find(const std::string& icao) const;
     int ApproachRank(const std::string& approach) const;  // lower is better

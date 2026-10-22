@@ -118,6 +118,7 @@ static void TestLecb(const Fir& fir)
 {
     CHECK_EQ(fir.name, std::string("LECB"));
     CHECK_EQ(fir.airports.size(), static_cast<size_t>(16));
+    CHECK(fir.clearRunways.empty());
     const int day = 12 * 60, night = 1 * 60;
 
     // LEBL day: west preferred up to 10 kt tailwind, gusts included.

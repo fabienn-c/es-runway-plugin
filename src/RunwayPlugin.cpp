@@ -400,6 +400,26 @@ void RunwayPlugin::RunStartup()
         lines.push_back(line);
     }
 
+    // Airports outside the FIR that are in the sector file (e.g. foreign ones): no runways selected.
+    if (!m_fir->clearRunways.empty())
+    {
+        std::set<std::string> inSector;
+        SelectActiveSectorfile();
+        for (CSectorElement e = SectorFileElementSelectFirst(SECTOR_ELEMENT_RUNWAY); e.IsValid();
+             e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_RUNWAY))
+            inSector.insert(Icao(e.GetAirportName()));
+        std::string cleared;
+        for (const auto& icao : m_fir->clearRunways)
+        {
+            if (!inSector.count(icao))
+                continue;
+            targets.push_back(AirportTarget{icao, {}, {}});
+            cleared += (cleared.empty() ? "" : ", ") + icao;
+        }
+        if (!cleared.empty())
+            lines.push_back("Outside " + m_fir->name + ", no runways selected: " + cleared);
+    }
+
     const std::string title = m_fir->name + ": runways set automatically";
     if (targets.empty())
     {
