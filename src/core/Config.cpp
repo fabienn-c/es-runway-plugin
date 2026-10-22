@@ -39,10 +39,12 @@ std::vector<Configuration> ReadConfigurations(const json& list)
     return out;
 }
 
-Airport ReadAirport(const std::string& icao, const json& j, int defaultTail, int defaultCross)
+Airport ReadAirport(const std::string& icao, const json& j, int defaultTail, int defaultCross,
+                    const std::string& defaultTimezone)
 {
     Airport a;
     a.icao = icao;
+    a.timezone = j.value("timezone", icao.rfind("GC", 0) == 0 ? std::string("Atlantic/Canary") : defaultTimezone);
     a.selection = j.value("selection", "approach") == "preferential" ? Selection::Preferential : Selection::Approach;
     const json limits = j.value("limits", json::object());
     a.maxTailwindKt = limits.value("maxTailwindKt", defaultTail);
@@ -131,7 +133,7 @@ std::string Airport::MatchActive(const std::set<std::string>& arrivals, const st
     return "";
 }
 
-const Airport* Fir::Find(const std::string& icao) const
+const Airport* Rules::Find(const std::string& icao) const
 {
     for (const auto& a : airports)
         if (a.icao == icao)
@@ -139,13 +141,13 @@ const Airport* Fir::Find(const std::string& icao) const
     return nullptr;
 }
 
-int Fir::ApproachRank(const std::string& approach) const
+int Rules::ApproachRank(const std::string& approach) const
 {
     const auto it = std::find(approachRanking.begin(), approachRanking.end(), approach);
     return it == approachRanking.end() ? static_cast<int>(approachRanking.size()) : static_cast<int>(it - approachRanking.begin());
 }
 
-bool LoadFir(const std::string& path, Fir& out, std::string& error)
+bool LoadRules(const std::string& path, Rules& out, std::string& error)
 {
     try
     {
@@ -156,17 +158,16 @@ bool LoadFir(const std::string& path, Fir& out, std::string& error)
             return false;
         }
         const json j = json::parse(in);
-        Fir fir;
-        fir.name = j.at("fir").get<std::string>();
-        fir.timezone = j.value("timezone", "Europe/Madrid");
-        fir.approachRanking = j.value("approachRanking", std::vector<std::string>{});
-        fir.clearRunways = j.value("clearRunways", std::vector<std::string>{});
+        Rules rules;
+        rules.name = j.value("name", "");
+        const std::string timezone = j.value("defaultTimezone", "Europe/Madrid");
+        rules.approachRanking = j.value("approachRanking", std::vector<std::string>{});
         const json defaults = j.value("defaults", json::object());
         const int tail = defaults.value("maxTailwindKt", 5);
         const int cross = defaults.value("maxCrosswindKt", 15);
         for (const auto& [icao, airport] : j.at("airports").items())
-            fir.airports.push_back(ReadAirport(icao, airport, tail, cross));
-        out = std::move(fir);
+            rules.airports.push_back(ReadAirport(icao, airport, tail, cross, timezone));
+        out = std::move(rules);
         return true;
     }
     catch (const std::exception& e)

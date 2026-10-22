@@ -1,21 +1,21 @@
 # ES Runway Plugin
 
 EuroScope plugin for VATSIM Spain that recommends and sets the active runways of every airport in the
-FIR from the VATSIM METAR, the AIP preferential configurations, the best available approach and
+runway dialog from the VATSIM METAR, the AIP preferential configurations, the best available approach and
 day/night rules.
 
-**Status: beta.** LECB is configured; LECM and GCCC follow.
+**Status: beta.** LECB and LECM airports are configured; GCCC follows.
 
 ## What it does
 
 - **At startup** (as soon as the sector and METARs are loaded) it sets the runways of every airport of
-  the FIR and shows a summary pop-up. It never touches the airport DEP/ARR ticks, only runways.
+  the runway dialog (airports without rules, e.g. foreign ones, get all runways deselected) and shows a summary pop-up. It never touches the airport DEP/ARR ticks, only runways.
 - **Afterwards**, every new METAR and every day/night change (LEBL 23:00 / 07:00 LT) is checked. If the
   recommended configuration differs from the active one, a pop-up offers **Accept** / **Decline**.
   Nothing changes without the controller accepting.
   - DEL / GND / TWR: suggestions only for their own airport.
-  - APP / CTR (and when not connected): the whole FIR.
-- Rules per airport (see `config/<FIR>.json`):
+  - APP / CTR (and when not connected): every airport.
+- Rules per airport (see `config/LEXX.json`):
   1. AIP preferential configuration first, within its wind limits (gusts included).
   2. Without an AIP preference: the runway with the best approach (ILS CAT III > … > visual), if the
      wind allows; equal approaches: most headwind.
@@ -25,7 +25,7 @@ day/night rules.
 ## Installation
 
 1. Download `ESRunwayPlugin.zip` from the [Releases](../../releases) page and extract the
-   `ESRunwayPlugin` folder (DLL + `LECB.json` …) anywhere, e.g. next to your other plugins.
+   `ESRunwayPlugin` folder (DLL + `LEXX.json` …) anywhere, e.g. next to your other plugins.
 2. In EuroScope: **OTHER SET → Plug-ins… → Load** → `ESRunwayPlugin.dll`.
 3. In the same dialog, select the plugin and move **Standard ES radar screen** to *Allowed to draw on
    types* (`<<`), so the pop-ups can be drawn. Without it, messages still appear in the **RWY** chat tab.
@@ -40,13 +40,13 @@ Works with EuroScope 3.2.x (32-bit). Details are logged to `ESRunwayPlugin.log` 
 | `.rwy check` | Re-check now (also downloads the METARs again) |
 | `.rwy startup` | Run the startup assignment again |
 | `.rwy accept` / `.rwy decline` | Answer the current suggestion from the command line |
-| `.rwy fir [NAME]` | Show or force the FIR (normally detected from the sector file) |
+| `.rwy airports` | Airports handled in this sector, and those without rules (cleared) |
 | `.rwy find` | Check that the runway icon is found in the top bar |
 | `.rwy capture` | Save a picture of the top bar (for support) |
 
 ## Configuration files
 
-One JSON file per FIR, next to the DLL. Each airport lists its configurations in order of preference,
+One JSON file for all of Spain (`LEXX.json`), next to the DLL. Each airport lists its configurations in order of preference,
 its wind limits and the AIP section they come from. They can be edited without rebuilding the plugin.
 
 ## Building

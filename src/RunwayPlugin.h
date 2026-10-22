@@ -20,15 +20,17 @@
 
 class RunwayScreen;
 
-// Recommends and sets active runways for the airports of the loaded FIR.
+// Recommends and sets active runways for every airport with runways in the loaded sector file,
+// using the rules in LEXX.json.
 //
-//  - Startup: as soon as the sector and METARs are available, every airport of the FIR is set
-//    to its recommended configuration and a summary pop-up lists what was set.
+//  - Startup: as soon as the sector and METARs are available, every airport with rules is set to its
+//    recommended configuration, airports without rules (e.g. foreign ones) get all runways deselected,
+//    and a summary pop-up lists what was set.
 //  - Afterwards: each new METAR (and each day/night schedule change) is re-evaluated; if the
 //    recommendation differs from what is active, a pop-up offers Accept / Decline.
-//    DEL/GND/TWR only get suggestions for their own airport, APP/CTR for the whole FIR.
+//    DEL/GND/TWR only get suggestions for their own airport, APP/CTR for every airport.
 //
-// Commands: .rwy status [ICAO] | check | startup | accept | decline | fir [NAME] | find | capture
+// Commands: .rwy status [ICAO] | check | startup | accept | decline | airports | find | capture
 class RunwayPlugin : public EuroScopePlugIn::CPlugIn
 {
 public:
@@ -70,8 +72,9 @@ private:
     };
 
     void Say(const std::string& message);
-    void LoadConfigs();
-    bool DetectFir(const std::string& forced = "");
+    void LoadRules();
+    bool PrepareSector();
+    std::vector<const core::Airport*> SectorAirports() const;  // airports with rules in this sector
     void ReadRunwayHeadings();
     void HandleMetarLine(const std::string& line);
     void RunStartup();
@@ -88,8 +91,9 @@ private:
     void Refresh();
     void Apply(std::vector<AirportTarget> targets, RunwayApplier::DoneCallback done);
 
-    std::vector<core::Fir> m_firs;
-    const core::Fir* m_fir = nullptr;
+    core::Rules m_rules;
+    bool m_ready = false;                    // sector loaded and airports known
+    std::vector<std::string> m_unconfigured; // sector airports without rules: runways cleared at startup
     std::map<std::string, core::RunwayHeadings> m_headings;
     std::map<std::string, AirportState> m_airports;
 
@@ -103,7 +107,7 @@ private:
     std::set<RunwayScreen*> m_screens;
 
     bool m_startupDone = false;
-    int m_detectedAtTick = -1;
+    int m_readyAtTick = -1;
     int m_lastTick = 0;
-    int m_lastScheduleMinute = -1;
+    long long m_lastScheduleMinute = -1;
 };

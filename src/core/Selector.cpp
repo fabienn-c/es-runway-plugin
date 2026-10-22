@@ -98,7 +98,7 @@ WindOnRunway Components(int windFrom, int speedKt, double runwayHeading)
     return WindOnRunway{speedKt * std::cos(angle), std::abs(speedKt * std::sin(angle))};
 }
 
-Decision Decide(const Fir& fir, const Airport& airport, const Metar& metar, const RunwayHeadings& headings,
+Decision Decide(const Rules& rules, const Airport& airport, const Metar& metar, const RunwayHeadings& headings,
                 int localMinuteOfDay, const std::string& currentConfiguration)
 {
     Decision d;
@@ -129,7 +129,7 @@ Decision Decide(const Fir& fir, const Airport& airport, const Metar& metar, cons
     // Approach selection: best approach first, keeping the file order for equal ranks.
     if (airport.selection == Selection::Approach)
         std::stable_sort(candidates.begin(), candidates.end(), [&](const Configuration* a, const Configuration* b) {
-            return fir.ApproachRank(a->approach) < fir.ApproachRank(b->approach);
+            return rules.ApproachRank(a->approach) < rules.ApproachRank(b->approach);
         });
 
     const std::string wind = "wind " + metar.WindText();
@@ -138,9 +138,9 @@ Decision Decide(const Fir& fir, const Airport& airport, const Metar& metar, cons
         const Configuration* pick = candidates.front();
         if (airport.selection == Selection::Approach)
         {
-            const int best = fir.ApproachRank(pick->approach);
+            const int best = rules.ApproachRank(pick->approach);
             for (const auto* c : candidates)
-                if (fir.ApproachRank(c->approach) == best && c->name == currentConfiguration)
+                if (rules.ApproachRank(c->approach) == best && c->name == currentConfiguration)
                     pick = c;
         }
         d.configuration = pick;
@@ -178,10 +178,10 @@ Decision Decide(const Fir& fir, const Airport& airport, const Metar& metar, cons
     if (airport.selection == Selection::Approach)
     {
         // Same approach type: most headwind; same headwind (within 1 kt): keep the current one.
-        const int best = fir.ApproachRank(pick->configuration->approach);
+        const int best = rules.ApproachRank(pick->configuration->approach);
         for (const auto* w : within)
         {
-            if (fir.ApproachRank(w->configuration->approach) != best || w == pick)
+            if (rules.ApproachRank(w->configuration->approach) != best || w == pick)
                 continue;
             if (w->leastHeadwind > pick->leastHeadwind + 1.0 ||
                 (std::abs(w->leastHeadwind - pick->leastHeadwind) <= 1.0 && w->configuration->name == currentConfiguration))

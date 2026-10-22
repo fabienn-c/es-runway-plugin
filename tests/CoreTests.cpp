@@ -41,7 +41,7 @@ static Metar M(const std::string& line)
     return m;
 }
 
-static std::string Pick(const Fir& fir, const std::string& icao, const std::string& metar, int localMinute,
+static std::string Pick(const Rules& fir, const std::string& icao, const std::string& metar, int localMinute,
                         const std::string& current = "")
 {
     const Airport* a = fir.Find(icao);
@@ -114,11 +114,28 @@ static void TestComponents()
     CHECK(std::abs(cross.crosswind - 20) < 0.01);
 }
 
-static void TestLecb(const Fir& fir)
+static void TestRules(const Rules& fir)
 {
-    CHECK_EQ(fir.name, std::string("LECB"));
-    CHECK_EQ(fir.airports.size(), static_cast<size_t>(16));
-    CHECK(fir.clearRunways.empty());
+    CHECK_EQ(fir.name, std::string("LEXX"));
+    CHECK_EQ(fir.airports.size(), static_cast<size_t>(48));
+    CHECK_EQ(fir.Find("LEBL")->timezone, std::string("Europe/Madrid"));
+    CHECK(fir.Find("LEZG") && fir.Find("LELC") && fir.Find("LEAM"));  // once, shared by LECB and LECM
+
+    // LEMD: north preferred up to 10 kt tailwind, night configuration 23-07 LT.
+    CHECK_EQ(Pick(fir, "LEMD", "LEMD 211200Z 34008KT CAVOK Q1020", 12 * 60), std::string("North"));
+    CHECK_EQ(Pick(fir, "LEMD", "LEMD 211200Z 16012KT CAVOK Q1020", 12 * 60), std::string("South"));
+    CHECK_EQ(Pick(fir, "LEMD", "LEMD 210100Z VRB03KT CAVOK Q1020", 1 * 60, "South night"), std::string("North night"));
+    CHECK_EQ(Pick(fir, "LEMD", "LEMD 210100Z 18015KT CAVOK Q1020", 1 * 60), std::string("South night"));
+    // LEMG: south preferred.
+    CHECK_EQ(Pick(fir, "LEMG", "LEMG 211200Z 31008KT CAVOK Q1020", 12 * 60), std::string("South"));
+    CHECK_EQ(Pick(fir, "LEMG", "LEMG 211200Z 31012KT CAVOK Q1020", 12 * 60), std::string("North"));
+    // LEAS: 29 preferred, default 5 kt tailwind.
+    CHECK_EQ(Pick(fir, "LEAS", "LEAS 211200Z 11004KT CAVOK Q1020", 12 * 60), std::string("RWY 29"));
+    CHECK_EQ(Pick(fir, "LEAS", "LEAS 211200Z 11008KT CAVOK Q1020", 12 * 60), std::string("RWY 11"));
+    // LEST: ILS CAT III on 17 beats ILS CAT I on 35 while within limits.
+    CHECK_EQ(Pick(fir, "LEST", "LEST 211200Z 35004KT CAVOK Q1020", 12 * 60), std::string("RWY 17"));
+    CHECK_EQ(Pick(fir, "LEST", "LEST 211200Z 35009KT CAVOK Q1020", 12 * 60), std::string("RWY 35"));
+    CHECK(fir.Find("LEBG")->afis && fir.Find("LEHC")->afis && fir.Find("LEBA")->afis);
     const int day = 12 * 60, night = 1 * 60;
 
     // LEBL day: west preferred up to 10 kt tailwind, gusts included.
@@ -169,14 +186,14 @@ int main(int argc, char** argv)
     TestLocalTime();
     TestComponents();
 
-    Fir fir;
+    Rules fir;
     std::string error;
-    const std::string path = argc > 1 ? argv[1] : "config/LECB.json";
-    CHECK(LoadFir(path, fir, error));
+    const std::string path = argc > 1 ? argv[1] : "config/LEXX.json";
+    CHECK(LoadRules(path, fir, error));
     if (!error.empty())
         std::printf("%s\n", error.c_str());
     else
-        TestLecb(fir);
+        TestRules(fir);
 
     std::printf(g_failures ? "%d FAILED\n" : "all tests passed\n", g_failures);
     return g_failures ? 1 : 0;

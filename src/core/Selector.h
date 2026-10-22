@@ -36,7 +36,7 @@ struct Decision
     std::string reason;
 };
 
-Decision Decide(const Fir& fir, const Airport& airport, const Metar& metar, const RunwayHeadings& headings,
+Decision Decide(const Rules& rules, const Airport& airport, const Metar& metar, const RunwayHeadings& headings,
                 int localMinuteOfDay, const std::string& currentConfiguration);
 
 }

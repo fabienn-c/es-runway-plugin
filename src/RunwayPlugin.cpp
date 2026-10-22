@@ -116,7 +116,7 @@ RunwayPlugin::RunwayPlugin()
                    "Open the Active airport/runway dialog yourself: the plugin will then set the runways and press OK."};
         ShowPopup(p);
     });
-    LoadConfigs();
+    LoadRules();
 }
 
 RunwayPlugin::~RunwayPlugin()
@@ -134,9 +134,9 @@ void RunwayPlugin::Say(const std::string& message)
 }
 
 // ---------------------------------------------------------------------------------------------
-// Setup: configs, FIR, runway headings
+// Setup: rules file, sector airports, runway headings
 
-void RunwayPlugin::LoadConfigs()
+void RunwayPlugin::LoadRules()
 {
     namespace fs = std::filesystem;
     const fs::path dir = logfile::PluginDirectory();
@@ -147,23 +147,26 @@ void RunwayPlugin::LoadConfigs()
         {
             if (entry.path().extension() != ".json")
                 continue;
-            core::Fir fir;
+            core::Rules rules;
             std::string error;
-            if (core::LoadFir(entry.path().string(), fir, error))
+            if (!core::LoadRules(entry.path().string(), rules, error))
             {
-                logfile::Write("loaded " + fir.name + " (" + std::to_string(fir.airports.size()) + " airports) from " +
-                               entry.path().string());
-                m_firs.push_back(std::move(fir));
-            }
-            else
                 Say("config error: " + error);
+                continue;
+            }
+            logfile::Write("loaded " + std::to_string(rules.airports.size()) + " airports from " + entry.path().string());
+            if (m_rules.approachRanking.empty())
+                m_rules.approachRanking = rules.approachRanking;
+            for (auto& airport : rules.airports)
+                if (!m_rules.Find(airport.icao))
+                    m_rules.airports.push_back(std::move(airport));
         }
     }
-    if (m_firs.empty())
-        Say("no runway configuration files found next to the DLL (expected e.g. LECB.json)");
+    if (m_rules.airports.empty())
+        Say("no runway rules found next to the DLL (expected LEXX.json)");
 }
 
-bool RunwayPlugin::DetectFir(const std::string& forced)
+bool RunwayPlugin::PrepareSector()
 {
     SelectActiveSectorfile();
     std::set<std::string> sectorAirports;
@@ -173,42 +176,27 @@ bool RunwayPlugin::DetectFir(const std::string& forced)
     if (sectorAirports.empty())
         return false;  // sector not loaded yet
 
-    // The FIR whose airports are most completely present in the sector file. Neighbouring
-    // sectors contain some airports of other FIRs, never all of them.
-    const core::Fir* best = nullptr;
-    double bestScore = 0;
-    for (const auto& fir : m_firs)
-    {
-        int present = 0;
-        for (const auto& a : fir.airports)
-            present += sectorAirports.count(a.icao) ? 1 : 0;
-        const double score = fir.airports.empty() ? 0 : static_cast<double>(present) / fir.airports.size() + present * 1e-4;
-        if (!forced.empty() ? Upper(forced) == fir.name : score > bestScore)
-        {
-            best = &fir;
-            bestScore = score;
-        }
-    }
-    if (!best || (forced.empty() && bestScore < 0.5))
-    {
-        if (!forced.empty())
-            Say("no configuration loaded for FIR " + Upper(forced));
-        return false;
-    }
-
-    m_fir = best;
+    // Every airport with runways in the sector file: handled if it has rules, cleared otherwise.
     m_airports.clear();
-    for (const auto& a : m_fir->airports)
-        m_airports[a.icao] = AirportState{};
-    ReadRunwayHeadings();
+    m_unconfigured.clear();
     std::vector<std::string> stations;
-    for (const auto& a : m_fir->airports)
-        stations.push_back(a.icao);
-    m_feed.Start(stations);
-    m_detectedAtTick = m_lastTick;
+    for (const auto& icao : sectorAirports)
+    {
+        if (m_rules.Find(icao))
+        {
+            m_airports[icao] = AirportState{};
+            stations.push_back(icao);
+        }
+        else
+            m_unconfigured.push_back(icao);
+    }
+    ReadRunwayHeadings();
+    if (!stations.empty())
+        m_feed.Start(stations);
+    m_ready = true;
+    m_readyAtTick = m_lastTick;
     m_startupDone = false;
-    Say(m_fir->name + ": " + std::to_string(m_fir->airports.size()) +
-        " airports, downloading METARs to set the runways");
+    Say(std::to_string(stations.size()) + " airports with runway rules in this sector, downloading METARs to set the runways");
     return true;
 }
 
@@ -220,7 +208,7 @@ void RunwayPlugin::ReadRunwayHeadings()
          e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_RUNWAY))
     {
         const std::string icao = Icao(e.GetAirportName());
-        if (!m_fir || !m_fir->Find(icao))
+        if (!m_airports.count(icao))
             continue;
         CPosition start, end;
         if (!e.GetPosition(&start, 0) || !e.GetPosition(&end, 1))
@@ -261,11 +249,20 @@ void RunwayPlugin::HandleMetarLine(const std::string& line)
         Evaluate(metar.station, Trigger::Metar);
 }
 
+std::vector<const core::Airport*> RunwayPlugin::SectorAirports() const
+{
+    std::vector<const core::Airport*> out;
+    for (const auto& [icao, state] : m_airports)
+        if (const core::Airport* airport = m_rules.Find(icao))
+            out.push_back(airport);
+    return out;
+}
+
 core::Decision RunwayPlugin::DecideFor(const std::string& icao)
 {
-    const core::Airport* airport = m_fir->Find(icao);
-    const int minute = core::LocalMinuteOfDay(m_fir->timezone, std::time(nullptr));
-    return core::Decide(*m_fir, *airport, m_airports[icao].metar, m_headings[icao], minute,
+    const core::Airport* airport = m_rules.Find(icao);
+    const int minute = core::LocalMinuteOfDay(airport->timezone, std::time(nullptr));
+    return core::Decide(m_rules, *airport, m_airports[icao].metar, m_headings[icao], minute,
                         CurrentConfiguration(*airport));
 }
 
@@ -303,7 +300,7 @@ bool RunwayPlugin::InScope(const std::string& icao)
     if (facility >= 2 && facility <= 4)  // DEL, GND, TWR: own airport only
     {
         const std::string own = Upper(Str(me.GetCallsign()).substr(0, 4));
-        if (m_fir->Find(own))
+        if (m_rules.Find(own))
             return icao == own;
     }
     return true;
@@ -320,7 +317,7 @@ bool RunwayPlugin::HasFreshMetar(const std::string& icao)
 
 bool RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
 {
-    const core::Airport* airport = m_fir->Find(icao);
+    const core::Airport* airport = m_rules.Find(icao);
     AirportState& state = m_airports[icao];
     if (!airport || !HasFreshMetar(icao))
         return false;
@@ -369,8 +366,9 @@ void RunwayPlugin::RunStartup()
     m_startupDone = true;
     std::vector<AirportTarget> targets;
     std::vector<std::string> lines;
-    for (const auto& airport : m_fir->airports)
+    for (const core::Airport* a : SectorAirports())
     {
+        const core::Airport& airport = *a;
         AirportState& state = m_airports[airport.icao];
         if (!state.haveMetar)
         {
@@ -400,27 +398,17 @@ void RunwayPlugin::RunStartup()
         lines.push_back(line);
     }
 
-    // Airports outside the FIR that are in the sector file (e.g. foreign ones): no runways selected.
-    if (!m_fir->clearRunways.empty())
+    // Airports in the sector file without rules (e.g. foreign ones): no runways selected.
+    std::string cleared;
+    for (const auto& icao : m_unconfigured)
     {
-        std::set<std::string> inSector;
-        SelectActiveSectorfile();
-        for (CSectorElement e = SectorFileElementSelectFirst(SECTOR_ELEMENT_RUNWAY); e.IsValid();
-             e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_RUNWAY))
-            inSector.insert(Icao(e.GetAirportName()));
-        std::string cleared;
-        for (const auto& icao : m_fir->clearRunways)
-        {
-            if (!inSector.count(icao))
-                continue;
-            targets.push_back(AirportTarget{icao, {}, {}});
-            cleared += (cleared.empty() ? "" : ", ") + icao;
-        }
-        if (!cleared.empty())
-            lines.push_back("Outside " + m_fir->name + ", no runways selected: " + cleared);
+        targets.push_back(AirportTarget{icao, {}, {}});
+        cleared += (cleared.empty() ? "" : ", ") + icao;
     }
+    if (!cleared.empty())
+        lines.push_back("No runway rules, no runways selected: " + cleared);
 
-    const std::string title = m_fir->name + ": runways set automatically";
+    const std::string title = "Runways set automatically";
     if (targets.empty())
     {
         Popup p;
@@ -442,13 +430,14 @@ void RunwayPlugin::RunStartup()
 
 void RunwayPlugin::ReportStatus(const std::string& onlyIcao)
 {
-    if (!m_fir)
+    if (!m_ready)
     {
-        Say("no FIR detected yet");
+        Say("sector not loaded yet");
         return;
     }
-    for (const auto& airport : m_fir->airports)
+    for (const core::Airport* a : SectorAirports())
     {
+        const core::Airport& airport = *a;
         if (!onlyIcao.empty() && airport.icao != onlyIcao)
             continue;
         const AirportState& state = m_airports[airport.icao];
@@ -473,10 +462,10 @@ void RunwayPlugin::ReportStatus(const std::string& onlyIcao)
 void RunwayPlugin::OnTimer(int Counter)
 {
     m_lastTick = Counter;
-    if (!m_fir)
+    if (!m_ready)
     {
-        if (Counter % 5 == 0 && !m_firs.empty())
-            DetectFir();
+        if (Counter % 5 == 0 && !m_rules.airports.empty())
+            PrepareSector();
         return;
     }
 
@@ -491,20 +480,21 @@ void RunwayPlugin::OnTimer(int Counter)
             all = all && state.haveMetar;
             any = any || HasFreshMetar(icao);
         }
-        if (any && (all || Counter - m_detectedAtTick >= kStartupMetarWaitTicks))
+        if ((any || m_airports.empty()) && (all || Counter - m_readyAtTick >= kStartupMetarWaitTicks))
             RunStartup();
         return;
     }
 
-    // Day/night schedule changes (e.g. LEBL at 23:00 and 07:00 local).
-    const int minute = core::LocalMinuteOfDay(m_fir->timezone, std::time(nullptr));
-    if (m_startupDone && minute != m_lastScheduleMinute)
+    // Day/night schedule changes (e.g. LEBL at 23:00 and 07:00 local), checked once a minute.
+    const std::time_t now = std::time(nullptr);
+    if (m_startupDone && now / 60 != m_lastScheduleMinute)
     {
-        m_lastScheduleMinute = minute;
-        for (const auto& airport : m_fir->airports)
+        m_lastScheduleMinute = now / 60;
+        for (const core::Airport* a : SectorAirports())
         {
+            const core::Airport& airport = *a;
             const AirportState& state = m_airports[airport.icao];
-            const core::Schedule* schedule = airport.ScheduleAt(minute);
+            const core::Schedule* schedule = airport.ScheduleAt(core::LocalMinuteOfDay(airport.timezone, now));
             if (HasFreshMetar(airport.icao) && schedule && !state.scheduleName.empty() && schedule->name != state.scheduleName &&
                 InScope(airport.icao))
                 Evaluate(airport.icao, Trigger::Schedule);
@@ -523,20 +513,20 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
         ReportStatus(args.size() > 2 ? Upper(args[2]) : "");
     else if (cmd == "CHECK")
     {
-        if (!m_fir)
-            Say("no FIR detected yet");
+        if (!m_ready)
+            Say("sector not loaded yet");
         else
         {
             m_feed.FetchNow();
             int suggested = 0, set = 0;
             std::string stale;
-            for (const auto& airport : m_fir->airports)
+            for (const core::Airport* airport : SectorAirports())
             {
-                if (!InScope(airport.icao))
+                if (!InScope(airport->icao))
                     continue;
-                if (!HasFreshMetar(airport.icao))
-                    stale += " " + airport.icao;
-                else if (Evaluate(airport.icao, Trigger::Manual))
+                if (!HasFreshMetar(airport->icao))
+                    stale += " " + airport->icao;
+                else if (Evaluate(airport->icao, Trigger::Manual))
                     ++suggested;
                 else
                     ++set;
@@ -547,8 +537,8 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
     }
     else if (cmd == "STARTUP")
     {
-        if (!m_fir)
-            Say("no FIR detected yet");
+        if (!m_ready)
+            Say("sector not loaded yet");
         else if (m_applier.Busy())
             Say("still applying runways, try again in a moment");
         else
@@ -561,17 +551,15 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
         else
             Say("no runway suggestion pending");
     }
-    else if (cmd == "FIR")
+    else if (cmd == "AIRPORTS")
     {
-        if (args.size() > 2)
-            DetectFir(args[2]);
-        else
-        {
-            std::string loaded;
-            for (const auto& fir : m_firs)
-                loaded += " " + fir.name;
-            Say("FIR: " + (m_fir ? m_fir->name : std::string("not detected")) + " | loaded:" + loaded);
-        }
+        std::string handled, cleared;
+        for (const auto& [icao, state] : m_airports)
+            handled += " " + icao;
+        for (const auto& icao : m_unconfigured)
+            cleared += " " + icao;
+        Say(std::to_string(m_rules.airports.size()) + " airports in the rules | in this sector:" + handled +
+            (cleared.empty() ? "" : " | no rules (cleared):" + cleared));
     }
     else if (cmd == "FIND")
     {
@@ -595,7 +583,7 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
             Say("could not capture the top bar: is EuroScope in front and not minimised?");
     }
     else
-        Say("usage: .rwy status [ICAO] | check | startup | accept | decline | fir [NAME] | find | capture");
+        Say("usage: .rwy status [ICAO] | check | startup | accept | decline | airports | find | capture");
     return true;
 }
 
@@ -658,7 +646,7 @@ void RunwayPlugin::OnPopupButton(const std::string& button)
 
     if (button == "accept")
     {
-        const core::Airport* airport = m_fir ? m_fir->Find(popup.icao) : nullptr;
+        const core::Airport* airport = m_rules.Find(popup.icao);
         const core::Configuration* c = airport ? FindConfiguration(*airport, popup.configuration) : nullptr;
         if (!c)
             return;

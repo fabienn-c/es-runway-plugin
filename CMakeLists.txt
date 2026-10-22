@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ESRunwayPlugin VERSION 0.6.3 LANGUAGES CXX)
+project(ESRunwayPlugin VERSION 0.7.0 LANGUAGES CXX)
 
 # EuroScope is a 32-bit application: a 64-bit DLL will not load.
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
@@ -54,4 +54,4 @@ target_link_libraries(ESRunwayPlugin PRIVATE RunwayCore winhttp ${CMAKE_SOURCE_D
 enable_testing()
 add_executable(CoreTests tests/CoreTests.cpp)
 target_link_libraries(CoreTests PRIVATE RunwayCore)
-add_test(NAME CoreTests COMMAND CoreTests ${CMAKE_SOURCE_DIR}/config/LECB.json)
+add_test(NAME CoreTests COMMAND CoreTests ${CMAKE_SOURCE_DIR}/config/LEXX.json)

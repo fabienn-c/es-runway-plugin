@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-// Runway rules of one FIR, loaded from config/<FIR>.json.
+// Runway rules per airport, loaded from config/LEXX.json.
 namespace core {
 
 struct Configuration
@@ -38,6 +38,7 @@ enum class Selection
 struct Airport
 {
     std::string icao;
+    std::string timezone;  // "Europe/Madrid", or "Atlantic/Canary" for GC.. airports
     Selection selection = Selection::Approach;
     int maxTailwindKt = 5;
     int maxCrosswindKt = 15;
@@ -55,19 +56,18 @@ struct Airport
     std::string MatchActive(const std::set<std::string>& arrivals, const std::set<std::string>& departures) const;
 };
 
-struct Fir
+// All airports of one rules file (config/LEXX.json covers the whole of Spain).
+struct Rules
 {
     std::string name;
-    std::string timezone;
     std::vector<std::string> approachRanking;  // best first
     std::vector<Airport> airports;
-    std::vector<std::string> clearRunways;     // e.g. foreign airports in the sector: all runways deselected
 
     const Airport* Find(const std::string& icao) const;
     int ApproachRank(const std::string& approach) const;  // lower is better
 };
 
-// Loads one FIR file. On failure returns false and describes the problem in `error`.
-bool LoadFir(const std::string& path, Fir& out, std::string& error);
+// Loads a rules file. On failure returns false and describes the problem in `error`.
+bool LoadRules(const std::string& path, Rules& out, std::string& error);
 
 }
