@@ -34,9 +34,11 @@ struct Decision
     const Configuration* configuration = nullptr;  // null when no decision is possible
     const Schedule* schedule = nullptr;
     std::string reason;
+    std::string period;  // schedule name, "+weekend" while a weekend variant applies; changes trigger a re-check
 };
 
+// `localWeekday`: 0 = Sunday ... 6 = Saturday, -1 to ignore weekend variants.
 Decision Decide(const Rules& rules, const Airport& airport, const Metar& metar, const RunwayHeadings& headings,
-                int localMinuteOfDay, const std::string& currentConfiguration);
+                int localMinuteOfDay, const std::string& currentConfiguration, int localWeekday = -1);
 
 }

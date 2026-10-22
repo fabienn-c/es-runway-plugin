@@ -13,6 +13,12 @@ int UtcOffsetMinutes(const std::string& timezone, std::time_t utc);
 // Minutes since local midnight (0..1439).
 int LocalMinuteOfDay(const std::string& timezone, std::time_t utc);
 
+// Local day of the week: 0 = Sunday ... 6 = Saturday.
+int LocalWeekday(const std::string& timezone, std::time_t utc);
+
+// "SUN".."SAT" -> 0..6, -1 if unknown.
+int ParseWeekday(const std::string& day);
+
 // "23:00" -> 1380; "24:00" -> 1440. Returns -1 if malformed.
 int ParseClock(const std::string& hhmm);
 

@@ -261,9 +261,10 @@ std::vector<const core::Airport*> RunwayPlugin::SectorAirports() const
 core::Decision RunwayPlugin::DecideFor(const std::string& icao)
 {
     const core::Airport* airport = m_rules.Find(icao);
-    const int minute = core::LocalMinuteOfDay(airport->timezone, std::time(nullptr));
-    return core::Decide(m_rules, *airport, m_airports[icao].metar, m_headings[icao], minute,
-                        CurrentConfiguration(*airport));
+    const std::time_t now = std::time(nullptr);
+    return core::Decide(m_rules, *airport, m_airports[icao].metar, m_headings[icao],
+                        core::LocalMinuteOfDay(airport->timezone, now), CurrentConfiguration(*airport),
+                        core::LocalWeekday(airport->timezone, now));
 }
 
 std::string RunwayPlugin::CurrentConfiguration(const core::Airport& airport)
@@ -323,7 +324,8 @@ bool RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
         return false;
 
     const core::Decision d = DecideFor(icao);
-    state.scheduleName = d.schedule ? d.schedule->name : "";
+    const std::string previousPeriod = state.period;
+    state.period = d.period;
     if (!d.configuration)
     {
         logfile::Write(icao + ": no recommendation (" + d.reason + ")");
@@ -352,6 +354,8 @@ bool RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
             p.lines.push_back("The night configuration period started at " + start +
                               " LT. The current configuration can be kept while inbound and outbound traffic is "
                               "heavy; once the traffic load is back to normal, change to the night configuration.");
+        else if (previousPeriod.find("+weekend") != std::string::npos)
+            p.lines.push_back("The weekend night period has ended.");
         else
             p.lines.push_back("The " + d.schedule->name + " configuration period started at " + start + " LT.");
     }
@@ -365,37 +369,44 @@ void RunwayPlugin::RunStartup()
 {
     m_startupDone = true;
     std::vector<AirportTarget> targets;
-    std::vector<std::string> lines;
+    std::vector<std::string> issues, set;  // issues are listed first so they are seen without scrolling
+    int changed = 0, alreadyActive = 0;
     for (const core::Airport* a : SectorAirports())
     {
         const core::Airport& airport = *a;
         AirportState& state = m_airports[airport.icao];
         if (!state.haveMetar)
         {
-            lines.push_back(airport.icao + ": no METAR available, not set");
+            issues.push_back(airport.icao + ": no METAR available, not set");
             continue;
         }
         if (!HasFreshMetar(airport.icao))
         {
             // No current weather (e.g. closed for the night): leave no runway selected.
             targets.push_back(AirportTarget{airport.icao, {}, {}});
-            lines.push_back(airport.icao + ": METAR too old (" + state.metar.observation + "), no runways selected" +
-                            (airport.afis ? ". AFIS aerodrome: pilots decide which runway to use" : ""));
+            issues.push_back(airport.icao + ": METAR too old (" + state.metar.observation + "), no runways selected" +
+                             (airport.afis ? ". AFIS aerodrome: pilots decide which runway to use" : ""));
             continue;
         }
         const core::Decision d = DecideFor(airport.icao);
-        state.scheduleName = d.schedule ? d.schedule->name : "";
+        state.period = d.period;
         if (!d.configuration)
         {
-            lines.push_back(airport.icao + ": not set (" + d.reason + ")");
+            issues.push_back(airport.icao + ": not set (" + d.reason + ")");
             continue;
         }
         std::string line = airport.icao + ": " + d.configuration->Describe() + "  -  wind " + state.metar.WindText();
         if (d.configuration->name == CurrentConfiguration(airport))
+        {
             line += " (already active)";
+            ++alreadyActive;
+        }
         else
+        {
             targets.push_back(TargetFor(airport.icao, *d.configuration));
-        lines.push_back(line);
+            ++changed;
+        }
+        set.push_back(line);
     }
 
     // Airports in the sector file without rules (e.g. foreign ones): no runways selected.
@@ -406,26 +417,26 @@ void RunwayPlugin::RunStartup()
         cleared += (cleared.empty() ? "" : ", ") + icao;
     }
     if (!cleared.empty())
-        lines.push_back("No runway rules, no runways selected: " + cleared);
+        issues.push_back("No runway rules, no runways selected: " + cleared);
 
-    const std::string title = "Runways set automatically";
+    const std::string count = std::to_string(changed) + " airports set, " + std::to_string(alreadyActive) +
+                              " already active. You can change any of them in the runway dialog.";
+    auto show = [this, issues, set, count](const std::string& failure) {
+        Popup p;
+        p.title = "Runways set automatically";
+        if (!failure.empty())
+            p.lines.push_back("Not completed: " + failure + ". Check the runways manually.");
+        p.lines.insert(p.lines.end(), issues.begin(), issues.end());
+        p.lines.push_back(count);
+        p.lines.insert(p.lines.end(), set.begin(), set.end());
+        ShowPopup(p);
+    };
     if (targets.empty())
     {
-        Popup p;
-        p.title = title;
-        p.lines = lines;
-        ShowPopup(p);
+        show("");
         return;
     }
-    Apply(targets, [this, lines, title](bool ok, const std::string& message) {
-        Popup p;
-        p.title = title;
-        p.lines = lines;
-        if (!ok)
-            p.lines.push_back("Not completed: " + message + ". Check the runways manually.");
-        p.lines.push_back("You can change any of them in the runway dialog.");
-        ShowPopup(p);
-    });
+    Apply(targets, [show](bool ok, const std::string& message) { show(ok ? "" : message); });
 }
 
 void RunwayPlugin::ReportStatus(const std::string& onlyIcao)
@@ -464,40 +475,39 @@ void RunwayPlugin::OnTimer(int Counter)
     m_lastTick = Counter;
     if (!m_ready)
     {
-        if (Counter % 5 == 0 && !m_rules.airports.empty())
+        if (!m_rules.airports.empty())
             PrepareSector();
         return;
     }
 
+    // Read the flag before taking the lines: once it is set, the first download's lines are queued.
+    const bool firstFetchDone = m_feed.FirstFetchDone();
     for (const auto& line : m_feed.TakeLines())
         HandleMetarLine(line);
 
     if (!m_startupDone && !m_applier.Busy())
     {
-        bool all = true, any = false;
+        // Start as soon as the first download is in: airports still without a METAR don't publish one.
+        bool all = true;
         for (const auto& [icao, state] : m_airports)
-        {
             all = all && state.haveMetar;
-            any = any || HasFreshMetar(icao);
-        }
-        if ((any || m_airports.empty()) && (all || Counter - m_readyAtTick >= kStartupMetarWaitTicks))
+        if (all || firstFetchDone || Counter - m_readyAtTick >= kStartupMetarWaitTicks)
             RunStartup();
         return;
     }
 
-    // Day/night schedule changes (e.g. LEBL at 23:00 and 07:00 local), checked once a minute.
+    // Period changes (day/night at LEBL/LEMD, LEMD weekend nights until 09:00), checked once a minute.
     const std::time_t now = std::time(nullptr);
     if (m_startupDone && now / 60 != m_lastScheduleMinute)
     {
         m_lastScheduleMinute = now / 60;
-        for (const core::Airport* a : SectorAirports())
+        for (const core::Airport* airport : SectorAirports())
         {
-            const core::Airport& airport = *a;
-            const AirportState& state = m_airports[airport.icao];
-            const core::Schedule* schedule = airport.ScheduleAt(core::LocalMinuteOfDay(airport.timezone, now));
-            if (HasFreshMetar(airport.icao) && schedule && !state.scheduleName.empty() && schedule->name != state.scheduleName &&
-                InScope(airport.icao))
-                Evaluate(airport.icao, Trigger::Schedule);
+            const AirportState& state = m_airports[airport->icao];
+            if (!HasFreshMetar(airport->icao) || state.period.empty() || !InScope(airport->icao))
+                continue;
+            if (DecideFor(airport->icao).period != state.period)
+                Evaluate(airport->icao, Trigger::Schedule);
         }
     }
 }
@@ -618,10 +628,29 @@ void RunwayPlugin::ShowPopup(Popup popup)
     else
         m_popups.push_back(popup);
     // Also in the chat, for controllers who haven't allowed the plugin to draw on the radar screen.
+    // Long summaries are cut after the first lines (problems and the count come first); the full
+    // list is in the pop-up, the log and .rwy status.
+    constexpr size_t kChatLines = 10;
     std::string text = popup.title;
+    size_t added = 0;
     for (const auto& line : popup.lines)
-        if (line.rfind("METAR:", 0) != 0)
-            text += " | " + line;
+    {
+        if (line.rfind("METAR:", 0) == 0)
+            continue;
+        if (++added > kChatLines)
+        {
+            text += " | ... (" + std::to_string(popup.lines.size() - kChatLines) + " more, see .rwy status)";
+            break;
+        }
+        text += " | " + line;
+    }
+    if (added > kChatLines)
+        logfile::Write("full list: " + [&] {
+            std::string all;
+            for (const auto& line : popup.lines)
+                all += " | " + line;
+            return all;
+        }());
     if (popup.kind == Popup::Kind::Suggestion)
         text += " | .rwy accept / .rwy decline";
     Say(text);
@@ -644,6 +673,13 @@ void RunwayPlugin::OnPopupButton(const std::string& button)
         return;
     const Popup popup = m_popups.front();
 
+    if (button == "up" || button == "down")
+    {
+        constexpr int kScrollStep = 5;  // lines per click; the screen clamps at the ends
+        SetPopupScroll(std::max(0, PopupScroll() + (button == "up" ? -kScrollStep : kScrollStep)));
+        Refresh();
+        return;
+    }
     if (button == "accept")
     {
         const core::Airport* airport = m_rules.Find(popup.icao);

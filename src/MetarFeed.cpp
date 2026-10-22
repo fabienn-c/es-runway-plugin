@@ -67,6 +67,7 @@ void MetarFeed::Start(const std::vector<std::string>& stations)
         m_stop = false;
         m_fetchNow = true;
     }
+    m_firstFetchDone = false;
     m_thread = std::thread(&MetarFeed::Run, this);
 }
 
@@ -119,6 +120,7 @@ void MetarFeed::Run()
         if (body.empty())
         {
             logfile::Write("METAR download failed");
+            m_firstFetchDone = true;
             continue;
         }
         std::vector<std::string> lines;
@@ -132,5 +134,6 @@ void MetarFeed::Run()
         }
         std::lock_guard<std::mutex> lock(m_mutex);
         m_lines.insert(m_lines.end(), lines.begin(), lines.end());
+        m_firstFetchDone = true;  // set after the lines are queued: a reader seeing it also gets them
     }
 }

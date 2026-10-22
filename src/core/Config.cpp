@@ -28,6 +28,15 @@ Configuration ReadConfiguration(const json& j)
     c.arrivals = j.at("arr").get<std::vector<std::string>>();
     c.departures = j.at("dep").get<std::vector<std::string>>();
     c.approach = j.value("approach", "");
+    if (j.contains("weekendVariant"))
+    {
+        const json& v = j["weekendVariant"];
+        c.variant.configuration = v.at("configuration").get<std::string>();
+        c.variant.untilMinute = ParseClock(v.at("until").get<std::string>());
+        for (const auto& day : v.at("days").get<std::vector<std::string>>())
+            if (ParseWeekday(day) >= 0)
+                c.variant.days.push_back(ParseWeekday(day));
+    }
     return c;
 }
 

@@ -1,5 +1,7 @@
 #include "Selector.h"
 
+#include "LocalTime.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -98,8 +100,10 @@ WindOnRunway Components(int windFrom, int speedKt, double runwayHeading)
     return WindOnRunway{speedKt * std::cos(angle), std::abs(speedKt * std::sin(angle))};
 }
 
-Decision Decide(const Rules& rules, const Airport& airport, const Metar& metar, const RunwayHeadings& headings,
-                int localMinuteOfDay, const std::string& currentConfiguration)
+namespace {
+
+Decision DecideBySchedule(const Rules& rules, const Airport& airport, const Metar& metar, const RunwayHeadings& headings,
+                          int localMinuteOfDay, const std::string& currentConfiguration)
 {
     Decision d;
     d.schedule = airport.ScheduleAt(localMinuteOfDay);
@@ -207,6 +211,34 @@ Decision Decide(const Rules& rules, const Airport& airport, const Metar& metar, 
                                                                       : "more headwind on " + pick->configuration->name);
     else
         d.reason = wind + ": " + evaluated.front().configuration->name + " not usable, " + LimitText(evaluated.front(), airport);
+    return d;
+}
+
+}
+
+Decision Decide(const Rules& rules, const Airport& airport, const Metar& metar, const RunwayHeadings& headings,
+                int localMinuteOfDay, const std::string& currentConfiguration, int localWeekday)
+{
+    Decision d = DecideBySchedule(rules, airport, metar, headings, localMinuteOfDay, currentConfiguration);
+    d.period = d.schedule ? d.schedule->name : "";
+    if (!d.configuration || localWeekday < 0)
+        return d;
+
+    // Weekend variant, e.g. LEMD South -> South night until 09:00 LT on Saturday and Sunday.
+    const WeekendVariant& v = d.configuration->variant;
+    const bool today = std::find(v.days.begin(), v.days.end(), localWeekday) != v.days.end();
+    if (v.configuration.empty() || !today || localMinuteOfDay >= v.untilMinute)
+        return d;
+    for (const auto* c : airport.AllConfigurations())
+    {
+        if (c->name == v.configuration)
+        {
+            d.configuration = c;
+            d.reason += "; weekend: night configuration until " + FormatClock(v.untilMinute) + " LT";
+            d.period += "+weekend";
+            break;
+        }
+    }
     return d;
 }
 

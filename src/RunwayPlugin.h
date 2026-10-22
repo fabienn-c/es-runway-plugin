@@ -50,6 +50,13 @@ public:
     const Popup* FrontPopup() const { return m_popups.empty() ? nullptr : &m_popups.front(); }
     size_t PopupCount() const { return m_popups.size(); }
     void OnPopupButton(const std::string& button);
+    // First visible line of the front pop-up; reset when another pop-up comes to the front.
+    int PopupScroll() const { return m_popups.empty() || m_popups.front().id != m_scrollPopupId ? 0 : m_popupScroll; }
+    void SetPopupScroll(int line)
+    {
+        m_scrollPopupId = m_popups.empty() ? 0 : m_popups.front().id;
+        m_popupScroll = line;
+    }
     POINT PopupOrigin() const { return m_popupOrigin; }
     void SetPopupOrigin(POINT origin) { m_popupOrigin = origin; }
     void ForgetScreen(RunwayScreen* screen);
@@ -68,7 +75,7 @@ private:
     {
         core::Metar metar;
         bool haveMetar = false;
-        std::string scheduleName;  // schedule of the last evaluation
+        std::string period;  // period of the last evaluation (e.g. "day", "night", "day+weekend")
     };
 
     void Say(const std::string& message);
@@ -104,6 +111,8 @@ private:
     std::deque<Popup> m_popups;
     int m_nextPopupId = 1;
     POINT m_popupOrigin = {-1, -1};
+    int m_popupScroll = 0;
+    int m_scrollPopupId = 0;
     std::set<RunwayScreen*> m_screens;
 
     bool m_startupDone = false;

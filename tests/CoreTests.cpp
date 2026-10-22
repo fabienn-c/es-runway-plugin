@@ -42,13 +42,13 @@ static Metar M(const std::string& line)
 }
 
 static std::string Pick(const Rules& fir, const std::string& icao, const std::string& metar, int localMinute,
-                        const std::string& current = "")
+                        const std::string& current = "", int weekday = -1)
 {
     const Airport* a = fir.Find(icao);
     CHECK(a != nullptr);
     if (!a)
         return "";
-    const auto d = Decide(fir, *a, M(metar), RunwayHeadings{}, localMinute, current);
+    const auto d = Decide(fir, *a, M(metar), RunwayHeadings{}, localMinute, current, weekday);
     return d.configuration ? d.configuration->name : "(none)";
 }
 
@@ -100,6 +100,11 @@ static void TestLocalTime()
     // Summer time ends 2026-10-25 01:00 UTC
     CHECK_EQ(UtcOffsetMinutes("Europe/Madrid", 1792890000 - 1), 120);
     CHECK_EQ(UtcOffsetMinutes("Europe/Madrid", 1792890000), 60);
+    // Weekday: 2026-10-24 06:30 UTC is Saturday 08:30 in Madrid; 2026-10-24 22:30 UTC is Sunday 00:30.
+    CHECK_EQ(LocalWeekday("Europe/Madrid", 1792823400), 6);
+    CHECK_EQ(LocalWeekday("Europe/Madrid", 1792881000), 0);
+    CHECK_EQ(LocalWeekday("Atlantic/Canary", 1792881000), 6);
+    CHECK_EQ(ParseWeekday("SAT"), 6);
     CHECK_EQ(ParseClock("23:00"), 1380);
     CHECK_EQ(ParseClock("24:00"), 1440);
 }
@@ -126,6 +131,21 @@ static void TestRules(const Rules& fir)
     CHECK_EQ(Pick(fir, "LEMD", "LEMD 211200Z 16012KT CAVOK Q1020", 12 * 60), std::string("South"));
     CHECK_EQ(Pick(fir, "LEMD", "LEMD 210100Z VRB03KT CAVOK Q1020", 1 * 60, "South night"), std::string("North night"));
     CHECK_EQ(Pick(fir, "LEMD", "LEMD 210100Z 18015KT CAVOK Q1020", 1 * 60), std::string("South night"));
+    // LEMD weekend: South night kept until 09:00 LT on Saturday (6) and Sunday (0), not on weekdays,
+    // and never for North.
+    const std::string south = "LEMD 220700Z 16012KT CAVOK Q1020";
+    CHECK_EQ(Pick(fir, "LEMD", south, 8 * 60, "", 6), std::string("South night"));
+    CHECK_EQ(Pick(fir, "LEMD", south, 8 * 60, "", 0), std::string("South night"));
+    CHECK_EQ(Pick(fir, "LEMD", south, 9 * 60 + 30, "", 6), std::string("South"));
+    CHECK_EQ(Pick(fir, "LEMD", south, 8 * 60, "", 3), std::string("South"));
+    CHECK_EQ(Pick(fir, "LEMD", "LEMD 220700Z 34008KT CAVOK Q1020", 8 * 60, "", 6), std::string("North"));
+    {
+        const Airport* lemd = fir.Find("LEMD");
+        const auto d = Decide(fir, *lemd, M(south), RunwayHeadings{}, 8 * 60, "", 6);
+        CHECK_EQ(d.period, std::string("day+weekend"));
+        CHECK_EQ(Decide(fir, *lemd, M(south), RunwayHeadings{}, 9 * 60 + 30, "", 6).period, std::string("day"));
+    }
+
     // LEMG: south preferred.
     CHECK_EQ(Pick(fir, "LEMG", "LEMG 211200Z 31008KT CAVOK Q1020", 12 * 60), std::string("South"));
     CHECK_EQ(Pick(fir, "LEMG", "LEMG 211200Z 31012KT CAVOK Q1020", 12 * 60), std::string("North"));

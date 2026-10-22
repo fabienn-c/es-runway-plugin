@@ -767,7 +767,15 @@
               "dep": [
                 "14L",
                 "14R"
-              ]
+              ],
+              "weekendVariant": {
+                "configuration": "South night",
+                "days": [
+                  "SAT",
+                  "SUN"
+                ],
+                "until": "09:00"
+              }
             }
           ]
         },
@@ -798,7 +806,7 @@
         }
       ],
       "notes": [
-        "In South configuration, on Friday-Saturday and Saturday-Sunday nights the night period runs 23:00-09:00 LT when operations allow (not modelled: controllers apply the weekend procedure themselves).",
+        "In South configuration, on Friday-Saturday and Saturday-Sunday nights the night period runs 23:00-09:00 LT (weekendVariant): on Saturday and Sunday the South night configuration is kept until 09:00 LT.",
         "Arrivals by geographic criterion: from the east to 32R/18L, from the west to 32L/18R.",
         "Preferential configurations are also suspended with braking action below good, wind shear or thunderstorms."
       ]

@@ -48,6 +48,22 @@ int LocalMinuteOfDay(const std::string& timezone, std::time_t utc)
     return static_cast<int>(((local / 60) % 1440 + 1440) % 1440);
 }
 
+int LocalWeekday(const std::string& timezone, std::time_t utc)
+{
+    const long long local = static_cast<long long>(utc) + UtcOffsetMinutes(timezone, utc) * 60LL;
+    const long long days = local >= 0 ? local / 86400 : (local - 86399) / 86400;
+    return static_cast<int>(((days + 4) % 7 + 7) % 7);  // 1970-01-01 was a Thursday
+}
+
+int ParseWeekday(const std::string& day)
+{
+    static const char* const kDays[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+    for (int i = 0; i < 7; ++i)
+        if (day == kDays[i])
+            return i;
+    return -1;
+}
+
 int ParseClock(const std::string& hhmm)
 {
     int h = 0, m = 0;

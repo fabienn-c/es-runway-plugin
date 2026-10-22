@@ -41,7 +41,8 @@ private:
         Opening,
         WaitingForUser,
         Ticking,
-        Closing
+        Closing,
+        Reopening  // dialog cancelled after ignored clicks, opening it again
     };
 
     void Finish(bool ok, const std::string& message);
@@ -57,6 +58,9 @@ private:
     int m_method = 0;         // rwydialog::ClickMethod index
     int m_openAttempts = 0;
     int m_clicks = 0;
+    int m_failedClicks = 0;   // consecutive clicks without effect with the current method
+    bool m_settled = false;   // the dialog has been open long enough to accept clicks
+    bool m_retried = false;   // the whole pass was already repeated once
     bool m_waitingForClick = false;
     int m_clickRow = 0;
     int m_clickColumn = 0;

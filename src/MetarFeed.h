@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -20,6 +21,10 @@ public:
     // METAR lines received since the last call (UI thread).
     std::vector<std::string> TakeLines();
 
+    // True once the first download has finished (successfully or not): every station that has a
+    // METAR is then known, the others simply don't publish one.
+    bool FirstFetchDone() const { return m_firstFetchDone; }
+
 private:
     void Run();
 
@@ -28,6 +33,7 @@ private:
     std::condition_variable m_wake;
     bool m_stop = false;
     bool m_fetchNow = false;
+    std::atomic<bool> m_firstFetchDone{false};
     std::string m_query;
     std::vector<std::string> m_lines;
 };

@@ -6,10 +6,13 @@
 namespace {
 
 constexpr int kDialogWaitTicks = 15;       // 1.5 s for the dialog to appear after clicking the icon
+constexpr int kSettleTicks = 5;            // 0.5 s after the dialog appears before the first click
 constexpr int kUserWaitTicks = 1200;       // 2 min for the controller to open the dialog
-constexpr int kClickWaitTicks = 3;         // 0.3 s for a tick to show before trying another method
+constexpr int kClickWaitTicks = 6;         // 0.6 s for a tick to show
+constexpr int kTriesPerMethod = 2;         // clicks without effect before trying the next method
 constexpr int kCloseWaitTicks = 30;        // 3 s for the dialog to close after OK
-constexpr int kMaxClicks = 80;
+constexpr int kReopenWaitTicks = 10;       // 1 s between closing the dialog and the retry
+constexpr int kMaxClicks = 600;  // a whole sector with every runway ticked needs a few hundred
 constexpr int kMethodCount = static_cast<int>(rwydialog::ClickMethod::Count);
 
 }
@@ -21,8 +24,8 @@ bool RunwayApplier::Start(std::vector<AirportTarget> targets, DoneCallback done)
     m_targets = std::move(targets);
     m_done = std::move(done);
     m_missing.clear();
-    m_method = m_openAttempts = m_clicks = m_ticks = 0;
-    m_waitingForClick = false;
+    m_method = m_openAttempts = m_clicks = m_ticks = m_failedClicks = 0;
+    m_waitingForClick = m_settled = m_retried = false;
     GetCursorPos(&m_savedCursor);
     m_state = State::Opening;
     std::string list;
@@ -79,8 +82,22 @@ void RunwayApplier::Tick()
     case State::Ticking:
         if (!dialog)
             Finish(false, "the runway dialog was closed before the runways were set");
+        else if (!m_settled && m_ticks < kSettleTicks)
+            break;  // a freshly opened dialog ignores clicks for a moment
         else
+        {
+            m_settled = true;
             StepTicking(dialog);
+        }
+        break;
+
+    case State::Reopening:
+        if (!dialog && m_ticks > kReopenWaitTicks)
+        {
+            m_state = State::Opening;
+            m_method = m_openAttempts = m_failedClicks = m_ticks = 0;
+            m_waitingForClick = m_settled = false;
+        }
         break;
 
     case State::Closing:
@@ -140,13 +157,29 @@ void RunwayApplier::StepTicking(HWND dialog)
                 return;  // give EuroScope a moment
             logfile::Write(std::string("click with ") + rwydialog::MethodName(static_cast<rwydialog::ClickMethod>(m_method)) +
                            " had no effect");
-            if (++m_method >= kMethodCount)
+            if (++m_failedClicks >= kTriesPerMethod)
+            {
+                m_failedClicks = 0;
+                ++m_method;
+            }
+            if (m_method >= kMethodCount)
             {
                 rwydialog::PressCancel(dialog);
-                Finish(false, "EuroScope ignored the clicks in the runway dialog");
+                if (m_retried)
+                {
+                    Finish(false, "EuroScope ignored the clicks in the runway dialog");
+                    return;
+                }
+                // Close the dialog and do the whole pass once more.
+                logfile::Write("closing the runway dialog and trying again");
+                m_retried = true;
+                m_state = State::Reopening;
+                m_ticks = 0;
                 return;
             }
         }
+        else
+            m_failedClicks = 0;
         m_waitingForClick = false;
     }
 

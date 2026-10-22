@@ -7,12 +7,22 @@
 // Runway rules per airport, loaded from config/LEXX.json.
 namespace core {
 
+// On some days a configuration is replaced by another one until a given local time, e.g. LEMD:
+// in South configuration the night period lasts until 09:00 on Saturday and Sunday mornings.
+struct WeekendVariant
+{
+    std::string configuration;  // name of the configuration used instead
+    std::vector<int> days;      // local weekdays (0 = Sunday) on which it applies
+    int untilMinute = -1;       // local minutes of day; used before this time
+};
+
 struct Configuration
 {
     std::string name;
     std::vector<std::string> arrivals;
     std::vector<std::string> departures;
     std::string approach;  // only used by "approach" selection
+    WeekendVariant variant;
 
     std::vector<std::string> Runways() const;  // arrivals and departures, without duplicates
     std::string Describe() const;              // "West parallel (ARR 24R / DEP 24L)"
