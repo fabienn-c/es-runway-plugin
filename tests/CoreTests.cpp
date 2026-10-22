@@ -132,7 +132,18 @@ static void TestRules(const Rules& fir)
     CHECK_EQ(Pick(fir, "GCLA", "GCLA 221200Z 18009KT 9999 Q1020", 12 * 60), std::string("RWY 36"));
     CHECK_EQ(Pick(fir, "GCLA", "GCLA 221200Z 18012KT 9999 Q1020", 12 * 60), std::string("RWY 18"));
     CHECK_EQ(Pick(fir, "GCRR", "GCRR 221200Z 21004KT 9999 Q1020", 12 * 60), std::string("RWY 03"));
-    CHECK(fir.Find("GCGM")->afis && fir.Find("GCHI")->afis);
+    // Calm or variable wind: GCTS 07, GCXO 30, GCFV 01, GCHI 34, even if the other runway is active.
+    CHECK_EQ(Pick(fir, "GCTS", "GCTS 221200Z 00000KT 9999 Q1020", 12 * 60, "RWY 25"), std::string("RWY 07"));
+    CHECK_EQ(Pick(fir, "GCXO", "GCXO 221200Z VRB03KT 9999 Q1020", 12 * 60, "RWY 12"), std::string("RWY 30"));
+    CHECK_EQ(Pick(fir, "GCFV", "GCFV 221200Z VRB02KT 9999 Q1020", 12 * 60, "RWY 19"), std::string("RWY 01"));
+    CHECK_EQ(Pick(fir, "GCHI", "GCHI 221200Z 00000KT 9999 Q1020", 12 * 60, "RWY 16"), std::string("RWY 34"));
+    // Otherwise the best wind.
+    CHECK_EQ(Pick(fir, "GCHI", "GCHI 221200Z 16008KT 9999 Q1020", 12 * 60, "RWY 34"), std::string("RWY 16"));
+    CHECK_EQ(Pick(fir, "GCTS", "GCTS 221200Z 25010KT 9999 Q1020", 12 * 60, "RWY 07"), std::string("RWY 25"));
+    // AFIS: GCGM always, GCHI only on Saturday (6) and Sunday (0).
+    CHECK(fir.Find("GCGM")->IsAfis(3) && fir.Find("GCGM")->IsAfis(6));
+    CHECK(fir.Find("GCHI")->IsAfis(6) && fir.Find("GCHI")->IsAfis(0) && !fir.Find("GCHI")->IsAfis(3));
+    CHECK(!fir.Find("GCLP")->IsAfis(6));
     CHECK_EQ(fir.Find("LEBL")->timezone, std::string("Europe/Madrid"));
     CHECK(fir.Find("LEZG") && fir.Find("LELC") && fir.Find("LEAM"));  // once, shared by LECB and LECM
 

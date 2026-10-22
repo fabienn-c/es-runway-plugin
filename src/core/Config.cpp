@@ -65,6 +65,9 @@ Airport ReadAirport(const std::string& icao, const json& j, int defaultTail, int
     }
     a.notInLowVisibility = j.value("notInLowVisibility", std::vector<std::string>{});
     a.afis = j.value("afis", false);
+    for (const auto& day : j.value("afisDays", std::vector<std::string>{}))
+        if (ParseWeekday(day) >= 0)
+            a.afisDays.push_back(ParseWeekday(day));
     a.calmConfiguration = j.value("calmConfiguration", "");
 
     if (j.contains("schedules"))
@@ -132,6 +135,13 @@ std::vector<const Configuration*> Airport::AllConfigurations() const
         for (const auto& c : s.configurations)
             out.push_back(&c);
     return out;
+}
+
+bool Airport::IsAfis(int localWeekday) const
+{
+    if (!afis)
+        return false;
+    return afisDays.empty() || std::find(afisDays.begin(), afisDays.end(), localWeekday) != afisDays.end();
 }
 
 std::string Airport::MatchActive(const std::set<std::string>& arrivals, const std::set<std::string>& departures) const

@@ -55,7 +55,10 @@ struct Airport
     int suspendBelowCeilingFt = -1;  // preferential order suspended below these, -1 = never
     int suspendBelowVisibilityM = -1;
     std::vector<std::string> notInLowVisibility;
-    bool afis = false;  // AFIS aerodrome: pilots choose the runway
+    bool afis = false;      // AFIS aerodrome: pilots choose the runway
+    std::vector<int> afisDays;  // if set, AFIS only on these local weekdays (0 = Sunday), e.g. GCHI at weekends
+
+    bool IsAfis(int localWeekday) const;
     std::string calmConfiguration;  // used with calm/variable wind instead of the usual choice (optional)
     std::vector<Schedule> schedules;
 

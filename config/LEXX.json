@@ -28,6 +28,7 @@
     "GCFV": {
       "source": "AIP España AD 2-GCFV, AD 2.19 + IAC chart list, AMDT 408/26",
       "selection": "approach",
+      "calmConfiguration": "RWY 01",
       "configurations": [
         {
           "name": "RWY 01",
@@ -49,6 +50,9 @@
           ],
           "approach": "ILS_CAT_I"
         }
+      ],
+      "notes": [
+        "RWY 01 with calm or variable wind (VATSIM Spain operations)."
       ]
     },
     "GCGM": {
@@ -78,13 +82,18 @@
         }
       ],
       "notes": [
-        "No instrument approach procedures: chosen by wind only."
+        "AFIS aerodrome. No instrument approach procedures: chosen by wind only."
       ]
     },
     "GCHI": {
       "source": "AIP España AD 2-GCHI, AD 2.19, AIRAC AMDT 05/26",
       "selection": "approach",
+      "calmConfiguration": "RWY 34",
       "afis": true,
+      "afisDays": [
+        "SAT",
+        "SUN"
+      ],
       "configurations": [
         {
           "name": "RWY 16",
@@ -108,7 +117,8 @@
         }
       ],
       "notes": [
-        "No instrument approach procedures: chosen by wind only. AFIS outside TWR hours."
+        "Tower on weekdays, AFIS at weekends.",
+        "No instrument approach procedures: RWY 34 with calm or variable wind, otherwise the runway with the best wind."
       ]
     },
     "GCLA": {
@@ -198,6 +208,7 @@
     "GCTS": {
       "source": "AIP España AD 2-GCTS, AD 2.19 + IAC chart list, AIRAC AMDT 09/26",
       "selection": "approach",
+      "calmConfiguration": "RWY 07",
       "configurations": [
         {
           "name": "RWY 07",
@@ -221,12 +232,14 @@
         }
       ],
       "notes": [
-        "AIP: on approach to RWY 07 below 2100 ft the wind is often a 5-10 kt tailwind, turning to headwind lower down."
+        "AIP: on approach to RWY 07 below 2100 ft the wind is often a 5-10 kt tailwind, turning to headwind lower down.",
+        "RWY 07 with calm or variable wind (VATSIM Spain operations)."
       ]
     },
     "GCXO": {
       "source": "AIP España AD 2-GCXO, AD 2.19 + IAC chart list, AIRAC AMDT 09/26",
       "selection": "approach",
+      "calmConfiguration": "RWY 30",
       "configurations": [
         {
           "name": "RWY 12",
@@ -248,6 +261,9 @@
           ],
           "approach": "ILS_CAT_I"
         }
+      ],
+      "notes": [
+        "RWY 30 with calm or variable wind (VATSIM Spain operations)."
       ]
     },
     "GEML": {

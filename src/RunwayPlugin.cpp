@@ -455,7 +455,7 @@ RunwayPlugin::StartupPlan RunwayPlugin::BuildStartupPlan()
             if (HasActiveRunways(airport.icao))  // already clear: nothing to do, no OK pop-up for it
                 targets.push_back(AirportTarget{airport.icao, {}, {}});
             issues.push_back(airport.icao + ": METAR too old (" + state.metar.observation + "), no runways selected" +
-                             (airport.afis ? ". AFIS aerodrome: pilots decide which runway to use" : ""));
+                             (airport.IsAfis(core::LocalWeekday(airport.timezone, std::time(nullptr))) ? ". AFIS aerodrome: pilots decide which runway to use" : ""));
             continue;
         }
         const core::Decision d = DecideFor(airport.icao);
