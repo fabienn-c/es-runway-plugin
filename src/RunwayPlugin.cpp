@@ -368,20 +368,20 @@ bool RunwayPlugin::Evaluate(const std::string& icao, Trigger trigger)
 void RunwayPlugin::OfferStartup()
 {
     m_startupDone = true;
-    m_waitingForStartupDialog = false;
     const StartupPlan plan = BuildStartupPlan();
     if (plan.targets.empty())
     {
         ShowStartupSummary(plan, "");  // nothing to change: no dialog needed
         return;
     }
-    // The controller opens the dialog: EuroScope is in front and nobody is surprised by the clicking.
+    // Nothing is clicked until the controller presses OK: EuroScope is then in front and nobody is
+    // surprised by the dialog opening.
     RemovePopups(Popup::Kind::StartupPrompt);
     Popup p;
     p.kind = Popup::Kind::StartupPrompt;
     p.title = "Runway configuration ready";
     p.lines = {"Runways are ready to be set for " + std::to_string(plan.targets.size()) + " airports.",
-               "Press OK, then open the Active airport/runway dialog: the plugin will tick the runways and press OK "
+               "Press OK: the Active airport/runway dialog will open, the plugin will tick the runways and press OK "
                "by itself.",
                "Don't use the mouse while it works (about " + std::to_string(std::max<size_t>(5, plan.targets.size() / 4)) +
                    " seconds)."};
@@ -391,7 +391,6 @@ void RunwayPlugin::OfferStartup()
 void RunwayPlugin::RunStartup()
 {
     m_startupDone = true;
-    m_waitingForStartupDialog = false;
     const StartupPlan plan = BuildStartupPlan();  // fresh: METARs may have changed since the offer
     if (plan.targets.empty())
     {
@@ -528,10 +527,6 @@ void RunwayPlugin::OnTimer(int Counter)
             OfferStartup();
         return;
     }
-
-    // OK was pressed on the startup prompt: run as soon as the controller opens the runway dialog.
-    if (m_waitingForStartupDialog && !m_applier.Busy() && rwydialog::Find())
-        RunStartup();
 
     // Period changes (day/night at LEBL/LEMD, LEMD weekend nights until 09:00), checked once a minute.
     const std::time_t now = std::time(nullptr);
@@ -747,13 +742,15 @@ void RunwayPlugin::OnPopupButton(const std::string& button)
         m_popups.pop_front();
         if (button == "decline")
             logfile::Write(popup.icao + ": suggestion " + popup.configuration + " declined");
-        if (popup.kind == Popup::Kind::StartupPrompt)
-        {
-            m_waitingForStartupDialog = true;
-            Say("open the Active airport/runway dialog: the plugin will set the runways and press OK");
-        }
     }
     Refresh();
+    if (popup.kind == Popup::Kind::StartupPrompt && button == "ok")
+    {
+        if (m_applier.Busy())
+            Say("still applying runways, try again with .rwy startup");
+        else
+            RunStartup();  // opens the runway dialog, sets the runways and presses OK
+    }
 }
 
 void RunwayPlugin::Apply(std::vector<AirportTarget> targets, RunwayApplier::DoneCallback done)

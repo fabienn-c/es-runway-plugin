@@ -85,7 +85,7 @@ private:
     void ReadRunwayHeadings();
     void HandleMetarLine(const std::string& line);
 
-    // Startup: offered with an OK-only pop-up, run when the controller opens the runway dialog.
+    // Startup: offered with an OK-only pop-up; OK opens the runway dialog and sets the runways.
     struct StartupPlan
     {
         std::vector<AirportTarget> targets;
@@ -129,7 +129,6 @@ private:
     std::set<RunwayScreen*> m_screens;
 
     bool m_startupDone = false;
-    bool m_waitingForStartupDialog = false;  // OK pressed on the startup prompt, waiting for the dialog
     int m_readyAtTick = -1;
     int m_lastTick = 0;
     long long m_lastScheduleMinute = -1;

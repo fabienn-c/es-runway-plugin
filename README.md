@@ -8,9 +8,10 @@ day/night rules.
 
 ## What it does
 
-- **At startup** (as soon as the sector and METARs are loaded) a pop-up asks the controller to press OK and
-  open the *Active airport/runway* dialog; the plugin then ticks the runways of every airport in the dialog
-  (airports without rules, e.g. foreign ones, get all runways deselected), presses OK and shows a summary.
+- **At startup** (as soon as the sector and METARs are loaded) a pop-up announces the runway configuration;
+  nothing happens until the controller presses OK. Then the plugin opens the *Active airport/runway* dialog,
+  ticks the runways of every airport in it (airports without rules, e.g. foreign ones, get all runways
+  deselected), presses OK and shows a summary.
   It never touches the airport DEP/ARR ticks, only runways.
 - **Clicking only happens while EuroScope is the active window.** Switching to another program pauses it;
   it continues when EuroScope is in front again (gives up after 2 minutes away).
