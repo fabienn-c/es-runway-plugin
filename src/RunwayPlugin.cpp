@@ -51,6 +51,12 @@ std::string Icao(const char* name)
     return Upper(Trim(Str(name)).substr(0, 4));
 }
 
+// "1 airport", "3 airports"
+std::string Count(long long n, const std::string& noun)
+{
+    return std::to_string(n) + " " + noun + (n == 1 ? "" : "s");
+}
+
 std::vector<std::string> Tokens(const std::string& line)
 {
     std::vector<std::string> out;
@@ -267,14 +273,14 @@ core::Decision RunwayPlugin::DecideFor(const std::string& icao)
                         core::LocalWeekday(airport->timezone, now));
 }
 
-std::string RunwayPlugin::CurrentConfiguration(const core::Airport& airport)
+void RunwayPlugin::ActiveRunways(const std::string& icao, std::set<std::string>& arrivals,
+                                 std::set<std::string>& departures)
 {
-    std::set<std::string> arrivals, departures;
     SelectActiveSectorfile();
     for (CSectorElement e = SectorFileElementSelectFirst(SECTOR_ELEMENT_RUNWAY); e.IsValid();
          e = SectorFileElementSelectNext(e, SECTOR_ELEMENT_RUNWAY))
     {
-        if (Icao(e.GetAirportName()) != airport.icao)
+        if (Icao(e.GetAirportName()) != icao)
             continue;
         for (int i = 0; i < 2; ++i)
         {
@@ -285,6 +291,19 @@ std::string RunwayPlugin::CurrentConfiguration(const core::Airport& airport)
                 departures.insert(name);
         }
     }
+}
+
+bool RunwayPlugin::HasActiveRunways(const std::string& icao)
+{
+    std::set<std::string> arrivals, departures;
+    ActiveRunways(icao, arrivals, departures);
+    return !arrivals.empty() || !departures.empty();
+}
+
+std::string RunwayPlugin::CurrentConfiguration(const core::Airport& airport)
+{
+    std::set<std::string> arrivals, departures;
+    ActiveRunways(airport.icao, arrivals, departures);
     // Exact match only: extra active runways mean the configuration still has to be applied,
     // which also unticks every runway that isn't part of it.
     return airport.MatchActive(arrivals, departures);
@@ -380,7 +399,7 @@ void RunwayPlugin::OfferStartup()
     Popup p;
     p.kind = Popup::Kind::StartupPrompt;
     p.title = "Runway configuration ready";
-    p.lines = {"Runways are ready to be set for " + std::to_string(plan.targets.size()) + " airports.",
+    p.lines = {"Runways are ready to be set for " + Count(static_cast<long long>(plan.targets.size()), "airport") + ".",
                "Press OK: the Active airport/runway dialog will open, the plugin will tick the runways and press OK "
                "by itself.",
                "Don't use the mouse while it works (about " + std::to_string(std::max<size_t>(5, plan.targets.size() / 4)) +
@@ -407,7 +426,7 @@ void RunwayPlugin::ShowStartupSummary(const StartupPlan& plan, const std::string
     if (!failure.empty())
         p.lines.push_back("Not completed: " + failure + ". Check the runways manually.");
     p.lines.insert(p.lines.end(), plan.issues.begin(), plan.issues.end());
-    p.lines.push_back(std::to_string(plan.changed) + " airports set, " + std::to_string(plan.alreadyActive) +
+    p.lines.push_back(Count(plan.changed, "airport") + " set, " + std::to_string(plan.alreadyActive) +
                       " already active. You can change any of them in the runway dialog.");
     p.lines.insert(p.lines.end(), plan.set.begin(), plan.set.end());
     ShowPopup(p);
@@ -433,7 +452,8 @@ RunwayPlugin::StartupPlan RunwayPlugin::BuildStartupPlan()
         if (!HasFreshMetar(airport.icao))
         {
             // No current weather (e.g. closed for the night): leave no runway selected.
-            targets.push_back(AirportTarget{airport.icao, {}, {}});
+            if (HasActiveRunways(airport.icao))  // already clear: nothing to do, no OK pop-up for it
+                targets.push_back(AirportTarget{airport.icao, {}, {}});
             issues.push_back(airport.icao + ": METAR too old (" + state.metar.observation + "), no runways selected" +
                              (airport.afis ? ". AFIS aerodrome: pilots decide which runway to use" : ""));
             continue;
@@ -463,7 +483,8 @@ RunwayPlugin::StartupPlan RunwayPlugin::BuildStartupPlan()
     std::string cleared;
     for (const auto& icao : m_unconfigured)
     {
-        targets.push_back(AirportTarget{icao, {}, {}});
+        if (HasActiveRunways(icao))
+            targets.push_back(AirportTarget{icao, {}, {}});
         cleared += (cleared.empty() ? "" : ", ") + icao;
     }
     if (!cleared.empty())
@@ -573,8 +594,8 @@ bool RunwayPlugin::OnCompileCommand(const char* sCommandLine)
                 else
                     ++set;
             }
-            Say("check: " + std::to_string(set) + " airports already set, " + std::to_string(suggested) +
-                " suggestion(s)" + (stale.empty() ? "" : ", no current METAR:" + stale));
+            Say("check: " + Count(set, "airport") + " already set, " + Count(suggested, "suggestion") +
+                (stale.empty() ? "" : ", no current METAR:" + stale));
         }
     }
     else if (cmd == "STARTUP")

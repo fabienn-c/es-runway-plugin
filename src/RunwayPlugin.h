@@ -102,6 +102,8 @@ private:
     // Shows a suggestion when the recommendation differs from the active runways; returns true if it did.
     bool Evaluate(const std::string& icao, Trigger trigger);
     core::Decision DecideFor(const std::string& icao);
+    void ActiveRunways(const std::string& icao, std::set<std::string>& arrivals, std::set<std::string>& departures);
+    bool HasActiveRunways(const std::string& icao);
     std::string CurrentConfiguration(const core::Airport& airport);
     bool InScope(const std::string& icao);
     void ReportStatus(const std::string& onlyIcao);
