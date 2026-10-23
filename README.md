@@ -6,6 +6,9 @@ day/night rules.
 
 **Status: beta.** All three FIRs (LECB, LECM, GCCC) are configured: 56 airports.
 
+- Controller guide (Spanish): [docs/GUIA.md](docs/GUIA.md)
+- Integration in the vACC package: [docs/OPERACIONES.md](docs/OPERACIONES.md)
+
 ## What it does
 
 - **At startup** (as soon as the sector and METARs are loaded) a pop-up announces the runway configuration;
