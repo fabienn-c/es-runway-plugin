@@ -4,7 +4,7 @@ EuroScope plugin for VATSIM Spain that recommends and sets the active runways of
 runway dialog from the VATSIM METAR, the AIP preferential configurations, the best available approach and
 day/night rules.
 
-**Status: beta.** All three FIRs (LECB, LECM, GCCC) are configured: 56 airports.
+**Version 1.0.** All three FIRs (LECB, LECM, GCCC) are configured: 56 airports.
 
 - Controller guide (Spanish): [docs/GUIA.md](docs/GUIA.md)
 - Integration in the vACC package: [docs/OPERACIONES.md](docs/OPERACIONES.md)
@@ -70,3 +70,17 @@ ctest --test-dir build -C Release
 
 `sdk/` contains the EuroScope plugin SDK (`EuroScopePlugIn.h`, `EuroScopePlugInDll.lib`) from the
 EuroScope installation.
+
+## Licence
+
+Copyright (C) 2026 Fabien Capmarty
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU
+General Public License as published by the Free Software Foundation, either version 3 of the License,
+or (at your option) any later version. It is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+PURPOSE. See [LICENSE](LICENSE) for the full text.
+
+The EuroScope plugin SDK files in `sdk/` belong to the EuroScope project and are included only to
+build the plugin; they are not covered by this licence. Runway rules in `config/LEXX.json` are derived
+from the AIP España published by ENAIRE.

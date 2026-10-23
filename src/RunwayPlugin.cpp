@@ -105,7 +105,7 @@ RunwayPlugin* RunwayPlugin::Instance()
 }
 
 RunwayPlugin::RunwayPlugin()
-    : CPlugIn(COMPATIBILITY_CODE, kName, PLUGIN_VERSION, "Fabien Capmarty", "VATSIM Spain")
+    : CPlugIn(COMPATIBILITY_CODE, kName, PLUGIN_VERSION, "Fabien Capmarty", "GPL v3")
 {
     g_instance = this;
     logfile::Write(std::string("---- ") + kName + " " + PLUGIN_VERSION + " loaded");
