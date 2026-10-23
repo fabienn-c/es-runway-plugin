@@ -94,7 +94,9 @@ abras tú el diálogo y continúa desde ahí.
 ## Problemas
 
 - El plugin escribe un registro en **`ESRunwayPlugin.log`**, junto al DLL. Adjúntalo al reportar un
-  problema.
+  problema. **El registro se borra cada vez que se carga el plugin**: guárdalo antes de volver a abrir
+  EuroScope.
+- Sin conexión a internet, el plugin espera a tener METAR antes de mostrar la ventana de inicio.
 - Si las ventanas no aparecen en la pantalla de radar: en *OTHER SET → Plug-ins…*, selecciona el plugin
   y pasa **Standard ES radar screen** a *Allowed to draw on types*. Con el perfil de la vACC esto ya
   viene configurado.

@@ -108,6 +108,7 @@ RunwayPlugin::RunwayPlugin()
     : CPlugIn(COMPATIBILITY_CODE, kName, PLUGIN_VERSION, "Fabien Capmarty", "GPL v3")
 {
     g_instance = this;
+    logfile::Reset();  // one log per session, so it never grows without limit
     logfile::Write(std::string("---- ") + kName + " " + PLUGIN_VERSION + " loaded");
     m_applier.SetNeedUserCallback([this](bool needUser) {
         if (!needUser)
@@ -590,10 +591,15 @@ void RunwayPlugin::OnTimer(int Counter)
     if (!m_startupDone && !m_applier.Busy())
     {
         // Start as soon as the first download is in: airports still without a METAR don't publish one.
-        bool all = true;
+        // Without any METAR yet (no internet), keep waiting: starting now would turn every METAR that
+        // arrives later into its own suggestion pop-up.
+        bool all = true, any = false;
         for (const auto& [icao, state] : m_airports)
+        {
             all = all && state.haveMetar;
-        if (all || firstFetchDone || Counter - m_readyAtTick >= kStartupMetarWaitTicks)
+            any = any || state.haveMetar;
+        }
+        if (all || firstFetchDone || (any && Counter - m_readyAtTick >= kStartupMetarWaitTicks))
             OfferStartup();
         return;
     }

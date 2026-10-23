@@ -18,10 +18,20 @@ std::string PluginDirectory()
     return slash == std::string::npos ? std::string(".") : dir.substr(0, slash);
 }
 
-void Write(const std::string& line)
+static const std::string& LogPath()
 {
     static const std::string path = PluginDirectory() + "\\ESRunwayPlugin.log";
-    FILE* f = std::fopen(path.c_str(), "a");
+    return path;
+}
+
+void Reset()
+{
+    std::remove(LogPath().c_str());
+}
+
+void Write(const std::string& line)
+{
+    FILE* f = std::fopen(LogPath().c_str(), "a");
     if (!f)
         return;
     SYSTEMTIME t;

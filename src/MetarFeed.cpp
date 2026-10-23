@@ -22,7 +22,8 @@ std::string HttpGet(const std::wstring& path)
                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session)
         return body;
-    WinHttpSetTimeouts(session, 10000, 10000, 10000, 10000);
+    // Short timeouts: closing EuroScope waits for a download in progress. A slow one retries next minute.
+    WinHttpSetTimeouts(session, 3000, 3000, 5000, 5000);
     HINTERNET connection = WinHttpConnect(session, kHost, INTERNET_DEFAULT_HTTPS_PORT, 0);
     HINTERNET request = connection ? WinHttpOpenRequest(connection, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
                                                         WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE)
@@ -101,6 +102,7 @@ std::vector<std::string> MetarFeed::TakeLines()
 
 void MetarFeed::Run()
 {
+    bool failing = false;  // log a failure once, not every minute
     for (;;)
     {
         std::string query;
@@ -119,10 +121,15 @@ void MetarFeed::Run()
         const std::string body = HttpGet(std::wstring(path.begin(), path.end()));
         if (body.empty())
         {
-            logfile::Write("METAR download failed");
-            m_firstFetchDone = true;
+            // Not counted as the first download: startup keeps waiting (up to its limit) for real METARs.
+            if (!failing)
+                logfile::Write("METAR download failed, retrying every minute");
+            failing = true;
             continue;
         }
+        if (failing)
+            logfile::Write("METAR download working again");
+        failing = false;
         std::vector<std::string> lines;
         std::istringstream ss(body);
         for (std::string line; std::getline(ss, line);)
